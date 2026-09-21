@@ -165,8 +165,13 @@ jobs:
       - name: Tenant isolation suite (API, RLS, realtime, public access)
         run: npm run test:isolation --workspace apps/api
 
+      # Run from the workspace rather than passing --root: vitest resolves
+      # --config relative to --root, so the two together asked for
+      # apps/api/apps/api/vitest.integration.config.ts and the step never got
+      # as far as running a test.
       - name: Integration tests with coverage
-        run: npx vitest run --config apps/api/vitest.integration.config.ts --coverage --root apps/api
+        run: npx vitest run --config vitest.integration.config.ts --coverage
+        working-directory: apps/api
 
   security:
     name: Secrets and dependency audit
