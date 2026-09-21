@@ -62,16 +62,29 @@ ALTER DEFAULT PRIVILEGES FOR ROLE bullion_owner IN SCHEMA public
 -- ---------------------------------------------------------------------------
 -- Idempotency-key cleanup is inherently cross-tenant: it removes expired rows
 -- for every tenant, and no tenant context makes "all tenants" a legal answer.
--- It therefore needs BYPASSRLS — but nothing else.
+-- Under RLS a context-less session sees nothing, so the application role
+-- genuinely cannot do this job — it would delete zero rows and report success.
+-- The cleanup identity therefore needs BYPASSRLS, and nothing else.
 --
--- Relying on bullion_owner instead would be a trap: Docker creates
--- POSTGRES_USER as a SUPERUSER, so cleanup would appear to work locally, while
--- Azure PostgreSQL Flexible Server's administrator is NOT a superuser and the
--- identical code would match zero rows in production and report success.
+-- The obvious alternative, reusing the admin/migration role, was measured
+-- against the real server rather than assumed:
 --
--- Grants for this role are applied by migration 20260920210000, which limits
--- it to SELECT + DELETE on `idempotency_keys` alone. Even holding BYPASSRLS it
--- cannot read a single row of tenant data.
+--   bullion_owner        rolsuper=f  rolbypassrls=t   (Azure Flexible Server)
+--   bullion_app          rolsuper=f  rolbypassrls=f
+--   bullion_maintenance  rolsuper=f  rolbypassrls=t
+--
+-- So the admin *would* work: Azure's administrator is not a superuser, but it
+-- does hold BYPASSRLS. (An earlier version of this comment claimed cleanup as
+-- the admin would silently delete nothing on Azure. That was wrong, and the
+-- copy in migration 20260920210000 still says so — it cannot be edited without
+-- breaking Prisma's checksum for a migration that is already applied.)
+--
+-- The role stands on least privilege instead. bullion_owner owns every table
+-- and has full DDL rights over the schema; running an unattended hourly job as
+-- that identity puts the whole database inside the blast radius of a bug in a
+-- DELETE. bullion_maintenance is granted SELECT and DELETE on idempotency_keys
+-- alone, by migration 20260920210000. Even holding BYPASSRLS it cannot read a
+-- single row of tenant data, because the grants are not there to permit it.
 
 CREATE ROLE bullion_maintenance WITH LOGIN PASSWORD :'maintenance_password'
   NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;

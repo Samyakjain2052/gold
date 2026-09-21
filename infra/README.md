@@ -1,11 +1,20 @@
 # Infrastructure
 
-> **Nothing here has been provisioned.** `main.bicep` is the deployable
-> definition; it compiles cleanly (`az bicep build`, zero warnings) and creates
-> nothing until you run it.
+> **The dev environment is provisioned.** `bullion-dev-rg` in `centralindia`
+> holds PostgreSQL, Managed Redis, Key Vault, Storage, ACR, a Container Apps
+> environment, Log Analytics and App Insights. Migrations are applied and the
+> roles exist. The Container App itself is **not** created — the API refuses to
+> start in production until a licensed market-data provider is configured, so
+> there is nothing yet to run. See *Remaining blockers* at the end.
 
 Target: `centralindia` — the product serves Indian jewellers, and every other
 workload in this subscription already lives there.
+
+> **Redis note.** Azure Cache for Redis is retiring and the control plane now
+> refuses to create one (`"Azure Cache for Redis is retiring, create Azure
+> Managed Redis instead"`), so this template uses **Azure Managed Redis**
+> (`Microsoft.Cache/redisEnterprise`). Balanced B0 is also cheaper than the
+> Basic C0 it replaces, ~$12/mo against ~$16.
 
 ---
 
@@ -14,7 +23,7 @@ workload in this subscription already lives there.
 | Resource | Dev SKU | Prod SKU | ~Dev cost/mo |
 |---|---|---|---|
 | PostgreSQL Flexible Server | B1ms Burstable | D2ds_v5 GeneralPurpose, ZoneRedundant | $15–25 |
-| Azure Cache for Redis | Basic C0 | Standard C1 | ~$16 |
+| Azure Managed Redis | Balanced B0 | Balanced B1 | ~$12 |
 | Storage (logos) | Standard_LRS | Standard_ZRS | ~$2 |
 | Key Vault | Standard, RBAC | + purge protection | ~$1 |
 | Container Registry | Basic | Basic | ~$5 |
@@ -224,3 +233,69 @@ so rollback is a traffic switch rather than a rebuild.
 
 Production runs `minReplicas: 1` — Container Apps scaling to zero would drop the
 SSE connections and the leader-elected market poller.
+
+---
+
+## The provisioned dev environment
+
+Read back from Azure, not transcribed by hand.
+
+| Thing | Value |
+|---|---|
+| Resource group | `bullion-dev-rg` (`centralindia`) |
+| PostgreSQL | `bullion-dev-pg.postgres.database.azure.com`, database `bullion` |
+| Redis | `bullion-dev-redis.centralindia.redis.azure.net:10000` (TLS only) |
+| Container registry | `bulliondevacr5qzxpei4m7s22.azurecr.io` |
+| Key Vault | `bulliondev-5qzxpei4m7s22` |
+| Container Apps env | `bullion-dev-env` |
+| Managed identity | `bullion-dev-api-identity` |
+
+Key Vault holds `database-url`, `maintenance-database-url` and `redis-url`.
+The database passwords exist only there — they were generated at role-creation
+time and never written to disk.
+
+### Entra External ID
+
+| Setting | Value |
+|---|---|
+| Tenant | `bullionshops.onmicrosoft.com` |
+| `AUTH_DIRECTORY_ID` | `f02e7b26-7b99-45ff-9696-d45c70cdb6c2` |
+| `AUTH_ISSUER` | `https://f02e7b26-7b99-45ff-9696-d45c70cdb6c2.ciamlogin.com/f02e7b26-7b99-45ff-9696-d45c70cdb6c2/v2.0` |
+| `AUTH_AUDIENCE` | `api://bullion-rates` |
+| `AUTH_ALLOWED_CLIENT_IDS` | `46ab7716-17fc-42c9-8a81-2667c2650c29` (bullion-web) |
+| `AUTH_JWT_ALGORITHMS` | `RS256` |
+
+The issuer uses the **tenant-GUID** subdomain, which is what tokens carry;
+asking the `bullionshops.` host returns the same issuer but a different
+`jwks_uri`. Leave `AUTH_JWKS_URL` unset so it is derived from the issuer and the
+two cannot drift apart.
+
+`bullion-web` is a public client with PKCE and no secret. Its only redirect URI
+is `http://localhost:3000/auth/callback`; add the real one when the frontend
+exists.
+
+### Verified on the live server
+
+```
+bullion_owner        rolsuper=f  rolbypassrls=t
+bullion_app          rolsuper=f  rolbypassrls=f
+bullion_maintenance  rolsuper=f  rolbypassrls=t   grants: idempotency_keys only
+
+RLS enabled AND forced on 10/10 tenant tables
+bullion_app with no tenant context sees 0 tenants
+```
+
+The middle line is the one that matters: the application role cannot bypass
+RLS on the real server, and a context-less session genuinely sees nothing.
+
+## Remaining blockers
+
+1. **No market-data provider is licensed.** `MARKET_DATA_PROVIDER=mock` is
+   refused in production and every real provider is blocked pending written
+   redistribution confirmation, so the API still exits `78` on start. This is
+   the only thing standing between the current state and a running service.
+2. **No frontend.** `apps/` contains only `api`, so there is nothing for a
+   shopkeeper or customer to open.
+3. **The Container App is not created.** Deliberate: there is no point starting
+   a revision that cannot pass its own configuration check. `cd.yml` creates and
+   updates it once (1) is resolved.

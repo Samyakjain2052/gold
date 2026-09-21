@@ -38,8 +38,10 @@ permissions:
 env:
   RESOURCE_GROUP: bullion-${{ inputs.environment }}-rg
   CONTAINER_APP: bullion-${{ inputs.environment }}-api
-  REGISTRY: bullion${{ inputs.environment }}acr
   IMAGE_NAME: bullion-api
+  # REGISTRY is not set here. Bicep gives the registry a uniqueString suffix
+  # (bulliondevacr5qzxpei4m7s22), so any name spelled out in this file would be
+  # a guess that happens to be wrong. It is read back from the resource group.
 
 jobs:
   # A deploy must never outrun the test suite. `workflow_run` would let a red
@@ -64,6 +66,16 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve the container registry
+        id: acr
+        run: |
+          set -euo pipefail
+          name=$(az acr list --resource-group "$RESOURCE_GROUP" \
+            --query "[0].name" -o tsv)
+          [ -n "$name" ] || { echo "::error::no ACR in $RESOURCE_GROUP"; exit 1; }
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "REGISTRY=$name" >> "$GITHUB_ENV"
 
       # Tagged with the commit SHA, never `latest`. A rollback is then a
       # revision switch to a known tag rather than a rebuild of moving history.
@@ -92,8 +104,8 @@ jobs:
           echo "rule=gh-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
           az postgres flexible-server firewall-rule create \
             --resource-group "$RESOURCE_GROUP" \
-            --name "bullion-${{ inputs.environment }}-pg" \
-            --rule-name "gh-${{ github.run_id }}" \
+            --server-name "bullion-${{ inputs.environment }}-pg" \
+            --name "gh-${{ github.run_id }}" \
             --start-ip-address "$RUNNER_IP" \
             --end-ip-address "$RUNNER_IP" \
             --output none
@@ -115,8 +127,8 @@ jobs:
         run: |
           az postgres flexible-server firewall-rule delete \
             --resource-group "$RESOURCE_GROUP" \
-            --name "bullion-${{ inputs.environment }}-pg" \
-            --rule-name "${{ steps.firewall.outputs.rule }}" \
+            --server-name "bullion-${{ inputs.environment }}-pg" \
+            --name "${{ steps.firewall.outputs.rule }}" \
             --yes --output none || true
 
       - name: Deploy revision

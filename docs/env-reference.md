@@ -32,12 +32,16 @@ No named environment groups (`backend-standards.md` §3) — granular variables 
 | `DATABASE_STATEMENT_TIMEOUT_MS` | 🔒 | | Default 10000 |
 | `DATABASE_MAINTENANCE_URL` | 🔒 | job only | Key Vault. Connects as `bullion_maintenance` (`BYPASSRLS`, granted `SELECT, DELETE` on `idempotency_keys` and nothing else). Read **only** by the cleanup job, never by the API. |
 
-`DATABASE_MAINTENANCE_URL` deliberately has **no fallback**. Falling back to
-`DATABASE_URL` would delete nothing — RLS hides every row from a session with no
-tenant context — and falling back to `DATABASE_MIGRATION_URL` would work locally,
-because Docker makes `POSTGRES_USER` a superuser, while matching zero rows on
-Azure, whose PostgreSQL administrator is not. Both failures are silent successes,
-so the job refuses to start instead (exit `78`).
+`DATABASE_MAINTENANCE_URL` deliberately has **no fallback**, and the job exits
+`78` rather than guessing.
+
+Falling back to `DATABASE_URL` would delete nothing — RLS hides every row from a
+session with no tenant context — so the job would report success while the table
+grew without bound. Falling back to `DATABASE_MIGRATION_URL` would actually
+work, since Azure's administrator is not a superuser but does hold `BYPASSRLS`
+(measured on the server: `bullion_owner` is `rolsuper=f, rolbypassrls=t`). It is
+still refused, on least privilege: that role owns every table and has full DDL
+rights, and an unattended hourly job should not carry them.
 
 ### Idempotency cleanup (job only)
 

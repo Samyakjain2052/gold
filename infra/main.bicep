@@ -6,7 +6,7 @@
 // registrations).
 //
 // Aligned with deployment-best-practices.md §1: Container Apps for the API,
-// PostgreSQL Flexible Server, Azure Cache for Redis, Key Vault, Blob Storage,
+// PostgreSQL Flexible Server, Azure Managed Redis, Key Vault, Blob Storage,
 // ACR, and Log Analytics + Application Insights.
 //
 // Region defaults to centralindia — the product serves Indian jewellers, and
@@ -122,18 +122,36 @@ resource postgres_require_tls 'Microsoft.DBforPostgreSQL/flexibleServers/configu
   }
 }
 
-resource redis 'Microsoft.Cache/redis@2024-11-01' = {
+// Azure Managed Redis, not Azure Cache for Redis. The latter is retiring and
+// the control plane now refuses to create one at all:
+//   "Azure Cache for Redis is retiring, create Azure Managed Redis instead."
+// Balanced B0 is also cheaper than the Basic C0 it replaces (~$12/mo vs ~$16).
+resource redis 'Microsoft.Cache/redisEnterprise@2025-04-01' = {
   name: '${prefix}-redis'
   location: location
+  sku: {
+    name: is_production ? 'Balanced_B1' : 'Balanced_B0'
+  }
   properties: {
-    sku: {
-      name: is_production ? 'Standard' : 'Basic'
-      family: 'C'
-      capacity: is_production ? 1 : 0
-    }
-    // config.ts refuses a non-TLS REDIS_URL in production; enforce it here too.
-    enableNonSslPort: false
     minimumTlsVersion: '1.2'
+  }
+}
+
+resource redis_db 'Microsoft.Cache/redisEnterprise/databases@2025-04-01' = {
+  parent: redis
+  name: 'default'
+  properties: {
+    // Encrypted admits TLS connections only, matching config.ts, which refuses
+    // a REDIS_URL that is not rediss:// in production.
+    clientProtocol: 'Encrypted'
+    port: 10000
+    // EnterpriseCluster presents one endpoint and the ordinary non-clustered
+    // Redis API, so the node client connects without cluster awareness.
+    clusteringPolicy: 'EnterpriseCluster'
+    // Rate-limit counters and the published-rate cache are both reconstructible,
+    // but silently evicting a key under pressure would let a client past its
+    // limit. Fail loudly instead and size the cache deliberately.
+    evictionPolicy: 'NoEviction'
   }
 }
 
@@ -281,6 +299,7 @@ output location string = location
 output postgres_fqdn string = postgres.properties.fullyQualifiedDomainName
 output postgres_database string = postgres_database.name
 output redis_host string = redis.properties.hostName
+output redis_port int = redis_db.properties.port
 output storage_account string = storage.name
 output logo_container string = logo_container.name
 output key_vault_name string = key_vault.name

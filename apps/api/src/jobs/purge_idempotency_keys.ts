@@ -89,12 +89,17 @@ async function main(): Promise<void> {
    * Deliberately its own variable, with no fallback to `DATABASE_URL` or
    * `DATABASE_MIGRATION_URL`.
    *
-   * Falling back to the application role would delete nothing — RLS hides every
-   * row from a context-less session — and the job would report success while
-   * the table grew. Falling back to the admin role would work locally, where
-   * Docker makes it a superuser, and silently stop working on Azure, where the
-   * administrator is not one. Both failures are silent, so neither fallback is
-   * offered.
+   * Falling back to `DATABASE_URL` would delete nothing: RLS hides every row
+   * from a context-less session, so the job would report success while the
+   * table grew without bound. That is the failure this variable exists to
+   * prevent.
+   *
+   * `DATABASE_MIGRATION_URL` would technically work — Azure's administrator is
+   * not a superuser but does hold BYPASSRLS, verified on the server — and is
+   * still not offered. That role owns every table and has full DDL rights, so
+   * an unattended hourly job running as it puts the entire schema inside the
+   * blast radius of a bug in a DELETE. The maintenance role reaches
+   * `idempotency_keys` and nothing else.
    */
   const url = process.env["DATABASE_MAINTENANCE_URL"];
   if (url === undefined || url.trim() === "") {
