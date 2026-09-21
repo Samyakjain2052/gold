@@ -1,0 +1,62 @@
+.page {
+  min-height: 100dvh;
+  padding: var(--space-5) var(--space-4) var(--space-8);
+}
+
+.container {
+  max-width: var(--page-max);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.rates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ratesHeading {
+  font-size: 0.8125rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.footer {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  max-width: var(--measure);
+}
+
+.unavailable {
+  max-width: var(--measure);
+  margin: var(--space-8) auto;
+  padding: var(--space-6);
+  background: var(--surface-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.unavailableTitle {
+  font-size: 1.25rem;
+}
+
+.unavailableBody {
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+}
+
+@media (min-width: 40rem) {
+  .page {
+    padding: var(--space-7) var(--space-5) var(--space-8);
+  }
+}

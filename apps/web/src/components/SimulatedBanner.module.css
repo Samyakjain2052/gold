@@ -1,0 +1,34 @@
+/* Deliberately the loudest element on the page. A customer must not be able to
+   skim past it and read the numbers below as real prices. */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 2px solid var(--status-dev);
+  background: var(--status-dev-wash);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+}
+
+.tag {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--status-dev);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.text {
+  color: var(--text-secondary);
+}
+
+.text strong {
+  color: var(--text-primary);
+}

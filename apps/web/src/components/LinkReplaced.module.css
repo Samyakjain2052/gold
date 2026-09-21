@@ -1,0 +1,22 @@
+.panel {
+  max-width: var(--measure);
+  margin: var(--space-8) auto;
+  padding: var(--space-6);
+  background: var(--surface-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.title {
+  font-size: 1.25rem;
+}
+
+.body {
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+}

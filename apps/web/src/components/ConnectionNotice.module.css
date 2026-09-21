@@ -1,0 +1,28 @@
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid currentcolor;
+  font-size: 0.875rem;
+}
+
+.title {
+  font-weight: 650;
+}
+
+.body {
+  color: var(--text-secondary);
+}
+
+.reconnecting {
+  color: var(--status-stale);
+  background: var(--status-stale-wash);
+}
+
+.unavailable {
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+  border-color: var(--border-strong);
+}

@@ -6,6 +6,7 @@
  */
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
+import rate_limit from "express-rate-limit";
 import helmet from "helmet";
 import { randomUUID } from "node:crypto";
 import type { Logger } from "../platform/logger.js";
@@ -13,6 +14,9 @@ import { AppError, to_problem_body } from "../platform/errors.js";
 import { create_health_router, type HealthDependencies } from "./routes/health.js";
 import { create_pricing_router } from "./routes/pricing_rules.js";
 import { create_audit_router } from "./routes/audit_logs.js";
+import { create_public_router } from "./routes/public.js";
+import { create_me_router } from "./routes/me.js";
+import type { RateHub } from "../modules/realtime/rate_hub.js";
 import { create_authenticate } from "./middleware/authenticate.js";
 import { AuthorizationError } from "../modules/auth/authorization.js";
 import type { PrismaClient } from "@prisma/client";
@@ -27,6 +31,12 @@ export interface AppDependencies extends HealthDependencies {
    */
   readonly db?: PrismaClient;
   readonly verifier?: JwtVerifier;
+  /**
+   * Realtime fan-out. Absent in compositions without Redis, in which case the
+   * SSE route is not mounted at all — better an honest 404 than an endpoint
+   * that accepts a connection and never delivers anything.
+   */
+  readonly hub?: RateHub;
 }
 
 declare global {
@@ -73,6 +83,42 @@ export function create_app(deps: AppDependencies): Express {
 
   app.use("/health", create_health_router(deps));
 
+  // Public customer surface — no authentication by design. Mounted before the
+  // authenticated API so it is obvious at a glance which routes are anonymous,
+  // and so no `authenticate` middleware can accidentally be applied to it.
+  //
+  // Rate limited per IP: these are the only endpoints an unauthenticated
+  // stranger can reach, so they are the ones that need a ceiling. The limiter is
+  // in-memory rather than Redis-backed, which means the effective limit is
+  // per-replica; that is the correct trade for a read-only endpoint where the
+  // cost of an occasional extra request is a cache hit, not a mutation.
+  if (deps.db !== undefined) {
+    const public_limiter = rate_limit({
+      windowMs: 60_000,
+      limit: config.RATE_LIMIT_PUBLIC_PER_MIN,
+      standardHeaders: "draft-7",
+      legacyHeaders: false,
+      // The event stream is one long-lived request, not many; counting it
+      // against a per-minute budget would let a single reconnect loop lock a
+      // customer out of the page they are already reading.
+      skip: (req: Request) => req.path.endsWith("/stream"),
+      handler: (_req: Request, _res: Response, next: NextFunction) => {
+        next(new AppError("RATE_LIMITED", "Too many requests"));
+      },
+    });
+
+    app.use(
+      "/api/v1/public",
+      public_limiter,
+      create_public_router({
+        db: deps.db,
+        config,
+        logger,
+        ...(deps.hub === undefined ? {} : { hub: deps.hub }),
+      }),
+    );
+  }
+
   // Authenticated API. Mounted only when both a verifier and a database are
   // supplied: a route that requires identity must never exist without the
   // middleware that establishes it.
@@ -85,6 +131,7 @@ export function create_app(deps: AppDependencies): Express {
 
     // `authenticate` is applied at mount, so no handler below can be reached
     // without a derived context — it cannot be forgotten on a new route.
+    app.use("/api/v1/me", authenticate, create_me_router({ db: deps.db }));
     app.use("/api/v1/pricing-rules", authenticate, create_pricing_router({ db: deps.db }));
     app.use("/api/v1/audit-logs", authenticate, create_audit_router({ db: deps.db }));
   }

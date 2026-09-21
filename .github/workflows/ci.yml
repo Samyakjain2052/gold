@@ -173,6 +173,41 @@ jobs:
         run: npx vitest run --config vitest.integration.config.ts --coverage
         working-directory: apps/api
 
+  web:
+    name: Web — typecheck, component tests, build
+    runs-on: ubuntu-latest
+
+    # Placeholders only. The build must not depend on real infrastructure, and
+    # nothing here is a secret: every NEXT_PUBLIC_ value ships to the browser.
+    env:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_PUBLIC_AUTH_AUTHORITY: https://example.ciamlogin.com/00000000-0000-0000-0000-000000000000/v2.0
+      NEXT_PUBLIC_AUTH_CLIENT_ID: 00000000-0000-0000-0000-000000000000
+      NEXT_PUBLIC_AUTH_SCOPES: api://bullion-rates/rates.access
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck --workspace apps/web
+
+      - name: Component tests with coverage
+        run: npm run test:coverage --workspace apps/web
+
+      # A broken build is a broken deploy; catching it here is far cheaper than
+      # catching it in the deploy workflow.
+      - name: Production build
+        run: npm run build --workspace apps/web
+
   security:
     name: Secrets and dependency audit
     runs-on: ubuntu-latest

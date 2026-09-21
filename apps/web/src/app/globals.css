@@ -1,0 +1,198 @@
+/**
+ * Design tokens.
+ *
+ * The product is a rate board for jewellers, so the rate is the page and
+ * everything else recedes. The palette is warm neutrals with one restrained
+ * gold accent used for emphasis, never for decoration; there are no gradients,
+ * and the only motion is a brief highlight when a number actually changes.
+ *
+ * Every colour pair used for text meets WCAG AA at its size. Freshness is never
+ * signalled by colour alone — each state carries a word and an icon shape.
+ */
+
+:root {
+  /* Warm neutrals. The page is paper, not a dark dashboard. */
+  --surface-page: #faf8f5;
+  --surface-card: #ffffff;
+  --surface-sunken: #f2eee8;
+  --surface-inverse: #1c1917;
+
+  --border-subtle: #e7e1d8;
+  --border-strong: #d6cec1;
+
+  --text-primary: #1c1917;
+  --text-secondary: #57534e;
+  --text-muted: #78716c;
+  --text-inverse: #faf8f5;
+
+  /* One accent. Deep enough on paper to carry AA as text. */
+  --accent: #8a6516;
+  --accent-strong: #6b4e11;
+  --accent-wash: #fdf6e6;
+
+  /* Status. Each is paired with a label in the markup. */
+  --status-fresh: #15803d;
+  --status-fresh-wash: #f0fdf4;
+  --status-stale: #a16207;
+  --status-stale-wash: #fefce8;
+  --status-expired: #b91c1c;
+  --status-expired-wash: #fef2f2;
+  --status-dev: #6d28d9;
+  --status-dev-wash: #f5f3ff;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  /* Rates are compared down a column, so their glyphs must be same-width. */
+  --font-numeric: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono",
+    Menlo, Consolas, monospace;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Shadows are barely there: separation comes from the border. */
+  --shadow-card: 0 1px 2px rgb(28 25 23 / 4%), 0 1px 3px rgb(28 25 23 / 3%);
+  --shadow-raised: 0 2px 4px rgb(28 25 23 / 5%), 0 4px 12px rgb(28 25 23 / 5%);
+
+  --measure: 34rem;
+  --page-max: 60rem;
+}
+
+/* Jewellery shops often display this on a wall-mounted screen in a bright
+   showroom, where a dark surface reflects badly. The dark palette is therefore
+   offered only when the viewer's own device asks for it. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-page: #14110f;
+    --surface-card: #1f1b18;
+    --surface-sunken: #272220;
+    --surface-inverse: #faf8f5;
+
+    --border-subtle: #332c28;
+    --border-strong: #463d37;
+
+    --text-primary: #f5f1ec;
+    --text-secondary: #c4bab1;
+    --text-muted: #a29890;
+    --text-inverse: #1c1917;
+
+    --accent: #e3b448;
+    --accent-strong: #f0c76a;
+    --accent-wash: #2a2115;
+
+    --status-fresh: #4ade80;
+    --status-fresh-wash: #14261a;
+    --status-stale: #fbbf24;
+    --status-stale-wash: #2a2210;
+    --status-expired: #f87171;
+    --status-expired-wash: #2c1515;
+    --status-dev: #c4b5fd;
+    --status-dev-wash: #201a2e;
+
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow-raised: 0 4px 14px rgb(0 0 0 / 35%);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* Never below 16px: iOS zooms the page when a smaller input is focused. */
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  font-weight: 650;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent-strong);
+  text-underline-offset: 3px;
+}
+
+/* A visible focus ring on every interactive element. Removing it makes the app
+   unusable by keyboard, which is the cheapest accessibility failure to avoid. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Announced to screen readers, invisible on screen. Used for state changes that
+   are otherwise conveyed only by a visual badge. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Keyboard users land here first and can jump the header. */
+.skip-link {
+  position: absolute;
+  left: var(--space-4);
+  top: calc(-1 * var(--space-8));
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: top 120ms ease;
+}
+
+.skip-link:focus {
+  top: var(--space-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

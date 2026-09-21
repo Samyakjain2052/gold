@@ -125,12 +125,20 @@ export async function subscribe_to_rates(
   const channel = channel_for(requested_tenant_id);
 
   await subscriber.subscribe(channel, (message: string) => {
-    let event: RateEvent;
+    let parsed: unknown;
     try {
-      event = JSON.parse(message) as RateEvent;
+      parsed = JSON.parse(message);
     } catch {
       return; // A malformed message is dropped, never forwarded.
     }
+
+    // `JSON.parse` succeeds for `null`, `[]`, `3` and `"text"`, none of which
+    // have a `tenant_id`. Reading one off them throws *inside the Redis message
+    // handler*, where there is no caller to catch it — so the shape is checked
+    // before any field is touched, not after.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return;
+
+    const event = parsed as RateEvent;
 
     // Defence in depth: even on our own channel, refuse anything carrying
     // another tenant's id. Catches a mis-routed publish rather than relaying it.

@@ -1,0 +1,133 @@
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* A brief wash when a live update lands. The rate itself is not animated —
+   a moving number is harder to read, which is the opposite of the goal. */
+.updated {
+  animation: settle 1.2s ease-out;
+}
+
+@keyframes settle {
+  from {
+    background: var(--accent-wash);
+    border-color: var(--accent);
+  }
+  to {
+    background: var(--surface-card);
+    border-color: var(--border-subtle);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.amount {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* The rate is the largest thing on the page, and tabular so digits line up
+   down a column of cards. clamp keeps it readable on a phone without
+   overflowing a long silver rate. */
+.value {
+  font-family: var(--font-numeric);
+  font-size: clamp(1.75rem, 1.2rem + 2.6vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.amountExpired .value {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.unit {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.expiredNote {
+  font-size: 0.875rem;
+  color: var(--status-expired);
+  background: var(--status-expired-wash);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.breakdown {
+  margin: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.row dt {
+  color: var(--text-muted);
+}
+
+.row dd {
+  margin: 0;
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.total {
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.total dt {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.total dd {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.timestamp {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}

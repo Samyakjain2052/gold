@@ -1,0 +1,37 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  border: 1px solid currentcolor;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.glyph {
+  font-size: 0.7em;
+  line-height: 1;
+}
+
+.label {
+  line-height: 1;
+}
+
+.fresh {
+  color: var(--status-fresh);
+  background: var(--status-fresh-wash);
+}
+
+.stale {
+  color: var(--status-stale);
+  background: var(--status-stale-wash);
+}
+
+.expired {
+  color: var(--status-expired);
+  background: var(--status-expired-wash);
+}

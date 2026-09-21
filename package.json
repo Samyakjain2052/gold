@@ -5,6 +5,7 @@
   "description": "Multi-tenant live bullion rate platform for Indian jewellery shops",
   "workspaces": [
     "apps/api",
+    "apps/web",
     "packages/contracts"
   ],
   "engines": {
@@ -20,7 +21,9 @@
     "dev": "npm run dev --workspace apps/api",
     "db:migrate": "npm run db:migrate --workspace apps/api",
     "db:seed": "npm run db:seed --workspace apps/api",
-    "db:reset": "npm run db:reset --workspace apps/api"
+    "db:reset": "npm run db:reset --workspace apps/api",
+    "dev:web": "npm run dev --workspace apps/web",
+    "test:web": "npm run test --workspace apps/web"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
