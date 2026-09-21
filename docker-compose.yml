@@ -1,0 +1,44 @@
+# Local development dependencies.
+# The application itself runs on the host via `npm run dev`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bullion_postgres
+    environment:
+      POSTGRES_USER: bullion_owner
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: bullion
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Creates the non-superuser application role. RLS does not apply to
+      # superusers, so connecting as the owner would silently disable every
+      # tenant-isolation policy.
+      - ./apps/api/prisma/init/00_app_role.sql:/docker-entrypoint-initdb.d/00_app_role.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bullion_owner -d bullion"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: bullion_redis
+    ports:
+      # Host port 6380 by default: 6379 is very often already taken by another
+      # project's Redis. Override with REDIS_HOST_PORT if you prefer 6379.
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:

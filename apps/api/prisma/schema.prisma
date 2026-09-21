@@ -1,0 +1,455 @@
+// Bullion Rates Platform — database schema
+//
+// Conventions: plural snake_case tables, singular descriptive columns
+// (database-best-practices.md). Rates are BigInt milli-paise per gram
+// (ADR-0003); no Float/Decimal appears anywhere in this schema.
+//
+// RLS policies live in the migration SQL beside the tables they protect.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: the connection URL lives in prisma.config.ts (for Migrate) and is
+// supplied to PrismaClient via a driver adapter (see src/platform/db.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum tenant_status {
+  pending
+  active
+  suspended
+}
+
+enum tenant_role {
+  owner
+  manager
+  staff
+}
+
+enum market_source {
+  ibja
+  spot
+  mcx
+  mock
+}
+
+enum adjustment_kind {
+  absolute
+  percentage
+}
+
+enum rounding_mode {
+  half_up
+  half_even
+  ceil
+  floor
+}
+
+enum display_unit {
+  per_gram
+  per_10_gram
+  per_kilogram
+}
+
+// Which convention converts a quoted fineness to a target fineness.
+// Verified against IBJA published rates — see modules/pricing/purity.ts.
+enum purity_basis {
+  market_convention
+  fine_ratio
+}
+
+enum rate_direction {
+  up
+  down
+  unchanged
+}
+
+enum rate_trigger {
+  market_tick
+  rule_change
+  manual_recompute
+}
+
+enum provider_status {
+  healthy
+  degraded
+  down
+}
+
+// ---------------------------------------------------------------------------
+// Identity and tenancy
+// ---------------------------------------------------------------------------
+
+model tenants {
+  id               String        @id @default(uuid()) @db.Uuid
+  legal_name       String
+  status           tenant_status @default(pending)
+  suspended_at     DateTime?     @db.Timestamptz(3)
+  suspended_reason String?
+  created_at       DateTime      @default(now()) @db.Timestamptz(3)
+  updated_at       DateTime      @updatedAt @db.Timestamptz(3)
+
+  branding      tenant_branding?
+  contacts      tenant_contacts?
+  members       tenant_users[]
+  links         customer_links[]
+  products      tenant_products[]
+  pricing_rules tenant_pricing_rules[]
+  published     published_rates[]
+  rate_events   rate_update_events[]
+  audit_logs    audit_logs[]
+
+  @@index([status], name: "idx_tenants_status")
+}
+
+// Local mirror of Supabase auth. Supabase owns credentials — there is
+// deliberately no password hash column here.
+model users {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Microsoft Entra identity. The user key is (external_directory_id,
+  // external_object_id) — Entra's `tid` + `oid`. NOT `sub`, which is pairwise
+  // per application and would change under a second app registration.
+  external_object_id    String @db.Uuid
+  external_directory_id String @db.Uuid
+
+  email         String    @unique(map: "uq_users_email")
+  full_name     String?
+  last_login_at DateTime? @db.Timestamptz(3)
+  created_at    DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(3)
+
+  memberships    tenant_users[]
+  platform_admin platform_admins?
+  audit_entries  audit_logs[]
+  issued_links   customer_links[]
+  authored_rules tenant_pricing_rules[] @relation("pricing_rule_author")
+  edited_rules   tenant_pricing_rules[] @relation("pricing_rule_editor")
+
+  @@unique([external_directory_id, external_object_id], map: "uq_users_external_identity")
+}
+
+// The authorization source of truth: which user may act for which tenant.
+model tenant_users {
+  tenant_id  String      @db.Uuid
+  user_id    String      @db.Uuid
+  role       tenant_role @default(owner)
+  created_at DateTime    @default(now()) @db.Timestamptz(3)
+
+  tenant tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user   users   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([tenant_id, user_id])
+  // v1 allows one tenant per user. Drop to support multi-shop operators.
+  @@unique([user_id], map: "uq_tenant_users_user_id")
+  @@index([user_id], name: "idx_tenant_users_user_id")
+}
+
+// A separate table, not a role value — no string a shopkeeper can set grants
+// platform access.
+model platform_admins {
+  user_id    String   @id @db.Uuid
+  granted_by String?  @db.Uuid
+  granted_at DateTime @default(now()) @db.Timestamptz(3)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+// Public URL identifiers, rotatable so a shared link can be revoked without
+// changing tenant identity.
+model customer_links {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenant_id  String    @db.Uuid
+  slug       String
+  is_active  Boolean   @default(true)
+  revoked_at DateTime? @db.Timestamptz(3)
+  created_by String?   @db.Uuid
+  created_at DateTime  @default(now()) @db.Timestamptz(3)
+
+  tenant  tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  creator users?  @relation(fields: [created_by], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id], name: "idx_customer_links_tenant_id")
+}
+
+model tenant_branding {
+  tenant_id         String    @id @db.Uuid
+  display_name      String
+  logo_blob_path    String?
+  logo_content_type String?
+  logo_updated_at   DateTime? @db.Timestamptz(3)
+  accent_color      String?
+  tagline           String?
+  updated_at        DateTime  @updatedAt @db.Timestamptz(3)
+
+  tenant tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+}
+
+model tenant_contacts {
+  tenant_id     String   @id @db.Uuid
+  phone_e164    String?
+  whatsapp_e164 String?
+  public_email  String?
+  address_line1 String?
+  address_line2 String?
+  city          String?
+  state         String?
+  pincode       String?
+  show_phone    Boolean  @default(true)
+  show_whatsapp Boolean  @default(true)
+  show_address  Boolean  @default(true)
+  updated_at    DateTime @updatedAt @db.Timestamptz(3)
+
+  tenant tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Product catalog — global, shared across tenants
+// ---------------------------------------------------------------------------
+
+model metals {
+  code                      String       @id
+  display_name              String
+  reference_purity_num      Int
+  reference_purity_den      Int
+  conventional_display_unit display_unit
+
+  products products[]
+}
+
+model products {
+  id           String       @id @default(uuid()) @db.Uuid
+  metal_code   String
+  // Integers, never a float — ADR-0003.
+  purity_num   Int
+  purity_den   Int
+  // Per-product because IBJA uses different conventions for bullion and
+  // karat grades. See modules/pricing/purity.ts for the verification table.
+  purity_basis purity_basis
+  label        String
+  sort_order   Int          @default(0)
+  is_active    Boolean      @default(true)
+
+  metal           metals                 @relation(fields: [metal_code], references: [code])
+  tenant_products tenant_products[]
+  pricing_rules   tenant_pricing_rules[]
+  published       published_rates[]
+  rate_events     rate_update_events[]
+
+  @@unique([metal_code, purity_num, purity_den], map: "uq_products_metal_purity")
+  @@index([metal_code], name: "idx_products_metal_code")
+}
+
+model tenant_products {
+  tenant_id      String       @db.Uuid
+  product_id     String       @db.Uuid
+  is_enabled     Boolean      @default(true)
+  display_order  Int          @default(0)
+  display_unit   display_unit
+  // false → customers see only the final rate; true → market rate and
+  // adjustment are shown alongside it.
+  show_base_rate Boolean      @default(false)
+  updated_at     DateTime     @updatedAt @db.Timestamptz(3)
+
+  tenant  tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@id([tenant_id, product_id])
+  @@index([product_id], name: "idx_tenant_products_product_id")
+}
+
+// ---------------------------------------------------------------------------
+// Market data — global, append-only
+// ---------------------------------------------------------------------------
+
+model market_rates {
+  id                 BigInt        @id @default(autoincrement())
+  source             market_source
+  provider_name      String
+  symbol             String
+  // Milli-paise per gram. Nullable where a source quotes one-way only.
+  bid_per_gram       BigInt?
+  ask_per_gram       BigInt?
+  mid_per_gram       BigInt
+  purity_num         Int
+  purity_den         Int
+  // The vendor's own stamp — this is what customers are shown.
+  provider_timestamp DateTime      @db.Timestamptz(3)
+  // Ours. Never presented as "last updated".
+  ingested_at        DateTime      @default(now()) @db.Timestamptz(3)
+  raw_payload        Json?
+
+  published   published_rates[]
+  rate_events rate_update_events[]
+
+  @@index([symbol, provider_timestamp(sort: Desc)], name: "idx_market_rates_symbol_provider_ts")
+  @@index([ingested_at], name: "idx_market_rates_ingested_at")
+}
+
+model provider_health_events {
+  id            BigInt          @id @default(autoincrement())
+  provider_name String
+  status        provider_status
+  latency_ms    Int?
+  error_code    String?
+  error_message String?
+  created_at    DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([provider_name, created_at(sort: Desc)], name: "idx_provider_health_provider_created")
+}
+
+// ---------------------------------------------------------------------------
+// Pricing
+// ---------------------------------------------------------------------------
+
+model tenant_pricing_rules {
+  id                        String          @id @default(uuid()) @db.Uuid
+  tenant_id                 String          @db.Uuid
+  product_id                String          @db.Uuid
+  adjustment_kind           adjustment_kind @default(absolute)
+  // Milli-paise per gram. Signed — discounts are negative.
+  adjustment_value          BigInt          @default(0)
+  // Basis points. Integer, so percentages never touch a float.
+  adjustment_bps            Int             @default(0)
+  // Display precision for the final customer rate, in paise of the display
+  // unit. 1 = two decimals, 100 = nearest ₹1, 1000 = nearest ₹10.
+  rounding_step_paise       Int             @default(100)
+  rounding_mode             rounding_mode   @default(half_up)
+  // Display precision for the explanatory breakdown lines. Independent of the
+  // rate rounding above, so the market rate can read ₹1,40,813.93 while the
+  // customer rate is quoted to the nearest rupee.
+  component_precision_paise Int             @default(1)
+  is_active                 Boolean         @default(true)
+  // Optimistic concurrency. Incremented on every accepted update; an update
+  // quoting a stale version is rejected rather than silently overwriting.
+  version                   Int             @default(1)
+  created_by                String?         @db.Uuid
+  // Both populated from the authenticated context, never from a request body.
+  updated_by                String?         @db.Uuid
+  created_at                DateTime        @default(now()) @db.Timestamptz(3)
+  updated_at                DateTime        @updatedAt @db.Timestamptz(3)
+
+  tenant  tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  author  users?   @relation("pricing_rule_author", fields: [created_by], references: [id], onDelete: SetNull)
+  editor  users?   @relation("pricing_rule_editor", fields: [updated_by], references: [id], onDelete: SetNull)
+
+  published published_rates[]
+
+  @@index([tenant_id, product_id], name: "idx_tenant_pricing_rules_tenant_product")
+}
+
+// Current computed rate per tenant per product — the read model the public
+// page and SSE serve.
+model published_rates {
+  tenant_id  String @db.Uuid
+  product_id String @db.Uuid
+
+  // --- Storage precision: milli-paise per gram, before display rounding -----
+  raw_base_rate     BigInt
+  // The shopkeeper's CONFIGURED adjustment. Never derived from the total.
+  raw_adjustment    BigInt
+  raw_customer_rate BigInt
+
+  // --- Display precision: paise of `display_unit` ---------------------------
+  display_unit              display_unit
+  component_precision_paise Int          @default(1)
+  rounding_step_paise       Int          @default(100)
+  base_display_paise        BigInt
+  adjustment_display_paise  BigInt
+  // Residual from quantising total and components at different precisions.
+  // Disclosed on its own line rather than absorbed into the margin (ADR-0005).
+  rounding_delta_paise      BigInt       @default(0)
+  // Authoritative customer rate.
+  rate_display_paise        BigInt
+
+  source_market_rate_id BigInt?
+  pricing_rule_id       String?  @db.Uuid
+  provider_timestamp    DateTime @db.Timestamptz(3)
+  computed_at           DateTime @default(now()) @db.Timestamptz(3)
+
+  tenant       tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  product      products              @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  market_rate  market_rates?         @relation(fields: [source_market_rate_id], references: [id], onDelete: SetNull)
+  pricing_rule tenant_pricing_rules? @relation(fields: [pricing_rule_id], references: [id], onDelete: SetNull)
+
+  @@id([tenant_id, product_id])
+  @@index([product_id], name: "idx_published_rates_product_id")
+}
+
+model rate_update_events {
+  id             BigInt         @id @default(autoincrement())
+  tenant_id      String         @db.Uuid
+  product_id     String         @db.Uuid
+  old_rate_paise BigInt?
+  new_rate_paise BigInt
+  direction      rate_direction
+  // Distinguishes "gold moved" from "the shopkeeper changed their margin".
+  trigger        rate_trigger
+  market_rate_id BigInt?
+  created_at     DateTime       @default(now()) @db.Timestamptz(3)
+
+  tenant      tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  product     products      @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  market_rate market_rates? @relation(fields: [market_rate_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, created_at(sort: Desc)], name: "idx_rate_update_events_tenant_created")
+}
+
+// ---------------------------------------------------------------------------
+// Idempotency
+// ---------------------------------------------------------------------------
+
+/// Deliberately in PostgreSQL rather than Redis (api-standards.md §6): the
+/// record must commit in the SAME transaction as the mutation and its audit
+/// row, and a Redis key cannot join a database transaction. See the migration
+/// 20260920200000 header for the full reasoning.
+model idempotency_keys {
+  tenant_id           String   @db.Uuid
+  idempotency_key     String
+  /// Hash of method + path + canonical body. Same key with a different payload
+  /// is a client bug, not a retry.
+  request_fingerprint String
+  response_status     Int
+  response_body       Json
+  created_at          DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([tenant_id, idempotency_key], map: "pk_idempotency_keys")
+  @@index([created_at], name: "idx_idempotency_keys_created_at")
+}
+
+// ---------------------------------------------------------------------------
+// Audit — append-only
+// ---------------------------------------------------------------------------
+
+model audit_logs {
+  id            BigInt   @id @default(autoincrement())
+  tenant_id     String   @db.Uuid
+  actor_user_id String?  @db.Uuid
+  action        String
+  entity_type   String?
+  entity_id     String?
+  old_value     Json?
+  new_value     Json?
+  // How the actor was acting: authenticated | platform_admin | system.
+  actor_type    String?
+  // The tenant role held AT THE TIME of the action. Roles change; history must
+  // not be re-interpreted through today's role.
+  actor_role    String?
+  ip_address    String?  @db.Inet
+  user_agent    String?
+  request_id    String?
+  created_at    DateTime @default(now()) @db.Timestamptz(3)
+
+  tenant tenants @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  actor  users?  @relation(fields: [actor_user_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, created_at(sort: Desc)], name: "idx_audit_logs_tenant_created")
+  @@index([tenant_id, entity_type, entity_id, created_at(sort: Desc)], name: "idx_audit_logs_entity")
+}

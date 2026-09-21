@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege by default; jobs opt in to what they need.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  api:
+    name: API — typecheck, unit tests, coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # `npm ci`, never `npm install` — deployment-best-practices.md §12.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate --workspace apps/api
+
+      - name: Typecheck
+        run: npm run typecheck --workspace apps/api
+
+      - name: Validate Prisma schema
+        run: npx prisma validate --schema apps/api/prisma/schema.prisma
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+
+      # Coverage thresholds are enforced in vitest.config.ts and fail the build,
+      # not just the merge — testing-best-practices.md §17.
+      - name: Unit tests with coverage
+        run: npm run test:coverage --workspace apps/api
+
+      - name: Worked pricing examples
+        run: npm run pricing:examples --workspace apps/api
+
+  integration:
+    name: API — integration and tenant isolation
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bullion_owner
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: bullion_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bullion_owner -d bullion_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      DATABASE_MIGRATION_URL: postgresql://bullion_owner:testpassword@localhost:5432/bullion_test
+      DATABASE_URL: postgresql://bullion_app:testpassword@localhost:5432/bullion_test
+      # The integration fixtures read these; the app role must stay non-superuser.
+      TEST_DATABASE_MIGRATION_URL: postgresql://bullion_owner:testpassword@localhost:5432/bullion_test
+      TEST_DATABASE_URL: postgresql://bullion_app:testpassword@localhost:5432/bullion_test
+      # Cleanup runs cross-tenant, so it needs its own BYPASSRLS identity.
+      TEST_DATABASE_MAINTENANCE_URL: postgresql://bullion_maintenance:testpassword@localhost:5432/bullion_test
+      TEST_REDIS_URL: redis://localhost:6379
+      REDIS_URL: redis://localhost:6379
+      NODE_ENV: test
+      API_BASE_URL: http://localhost:8080
+      PUBLIC_WEB_URL: http://localhost:3000
+      ALLOWED_ORIGINS: http://localhost:3000
+      MARKET_DATA_PROVIDER: mock
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The application role must be a non-superuser, or RLS silently does
+      # nothing and every isolation test passes for the wrong reason.
+      - name: Create application role
+        run: |
+          PGPASSWORD=testpassword psql -h localhost -U bullion_owner -d bullion_test \
+            -f apps/api/prisma/init/00_app_role.sql
+        env:
+          PGPASSWORD: testpassword
+
+      - name: Generate Prisma client
+        run: npm run db:generate --workspace apps/api
+
+      - name: Apply migrations
+        run: npm run db:migrate --workspace apps/api
+
+      - name: Seed test data
+        run: npm run db:seed --workspace apps/api
+
+      # Confirms the application role cannot bypass RLS. Without this the whole
+      # isolation suite could pass while enforcing nothing.
+      - name: Assert application role is not a superuser
+        run: |
+          PGPASSWORD=testpassword psql -h localhost -U bullion_owner -d bullion_test -tAc \
+            "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname='bullion_app'" \
+            | grep -qx 'f' || { echo "::error::bullion_app can bypass RLS"; exit 1; }
+
+      # The maintenance role holds BYPASSRLS by necessity, so privilege — not
+      # policy — is all that keeps it away from tenant data. Assert the blast
+      # radius directly rather than trusting the migration to have stayed
+      # narrow.
+      - name: Assert maintenance role is confined to idempotency_keys
+        run: |
+          set -euo pipefail
+          reachable=$(PGPASSWORD=testpassword psql -h localhost -U bullion_owner -d bullion_test -tAc \
+            "SELECT coalesce(string_agg(DISTINCT table_name, ','), '')
+               FROM information_schema.role_table_grants
+              WHERE grantee = 'bullion_maintenance'")
+          [ "$reachable" = "idempotency_keys" ] || {
+            echo "::error::bullion_maintenance can reach: $reachable"; exit 1; }
+
+          PGPASSWORD=testpassword psql -h localhost -U bullion_owner -d bullion_test -tAc \
+            "SELECT rolsuper FROM pg_roles WHERE rolname='bullion_maintenance'" \
+            | grep -qx 'f' || { echo "::error::bullion_maintenance is a superuser"; exit 1; }
+        env:
+          PGPASSWORD: testpassword
+
+      # A tenant-isolation failure must never be buried inside an unrelated red
+      # build, so it runs as its own required gate first.
+      - name: Tenant isolation suite (API, RLS, realtime, public access)
+        run: npm run test:isolation --workspace apps/api
+
+      - name: Integration tests with coverage
+        run: npx vitest run --config apps/api/vitest.integration.config.ts --coverage --root apps/api
+
+  security:
+    name: Secrets and dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A tracked .env is a Critical finding — deployment-best-practices.md §4.
+      - name: Fail if secrets are tracked
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$|(^|/)\.env\.(?!example|template|sample)|\.pem$|\.key$|credentials\.json$|settings\.local\.json$' ; then
+            echo "::error::Forbidden file tracked in git. Untrack it and rotate the credential."
+            exit 1
+          fi
+          echo "No forbidden files tracked."
+
+      # No secret may be compiled into a browser bundle.
+      - name: Fail on suspicious NEXT_PUBLIC_ names
+        run: |
+          if grep -rnE 'NEXT_PUBLIC_[A-Z_]*(SECRET|PASSWORD|SERVICE_ROLE|PRIVATE)' \
+               --include='*.ts' --include='*.tsx' --include='*.env*' . ; then
+            echo "::error::A secret-looking value is exposed to the browser."
+            exit 1
+          fi
+          echo "No secrets exposed via NEXT_PUBLIC_."
+
+      - name: Dependency audit
+        run: npm audit --audit-level=critical

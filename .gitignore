@@ -1,0 +1,51 @@
+# Secrets — never commit real values. `.env.example` is the committed template.
+.env
+.env.*
+!.env.example
+!.env.template
+!.env.sample
+
+# Claude Code per-user overrides
+.claude/settings.local.json
+**/settings.local.json
+
+# Credentials and keys
+**/credentials.json
+**/secrets.json
+**/*.pem
+**/*.key
+**/id_rsa*
+.aws/credentials
+terraform.tfstate*
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+coverage-*/
+*.tsbuildinfo
+
+# Prisma generated client
+apps/api/src/generated/
+**/.prisma/
+
+# Test artifacts
+playwright-report/
+test-results/
+.vitest/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
