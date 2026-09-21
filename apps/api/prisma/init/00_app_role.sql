@@ -7,10 +7,45 @@
 -- tenant-isolation policy in the schema while appearing to work perfectly.
 --
 -- Migrations run as bullion_owner; the application connects as bullion_app.
+--
+-- ## Passwords and database name are parameters, not literals
+--
+--   psql -v app_password=... -v maintenance_password=... -f 00_app_role.sql
+--
+-- They default to the local development values only so the Docker entrypoint
+-- can run this unattended on a fresh volume. Every other environment must pass
+-- them. Hardcoding them here was a live defect in two directions: CI creates
+-- these roles with one password and connects with another, so every test that
+-- used the application role failed authentication; and `infra/README.md`
+-- instructs an operator to run this same file against Azure, which would have
+-- handed production a role whose password is the string "devpassword".
+--
+-- The database name is a parameter for the same reason — locally it is
+-- `bullion`, in CI `bullion_test`, and the GRANT is silently skipped when the
+-- name does not match.
 
-CREATE ROLE bullion_app WITH LOGIN PASSWORD 'devpassword' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+\if :{?app_password}
+\else
+  \set app_password 'devpassword'
+\endif
 
-GRANT CONNECT ON DATABASE bullion TO bullion_app;
+\if :{?maintenance_password}
+\else
+  \set maintenance_password 'devpassword'
+\endif
+
+\if :{?db_name}
+\else
+  \set db_name 'bullion'
+\endif
+
+-- Anything below that fails should stop the script rather than leave a
+-- half-provisioned role behind that looks fine until first connection.
+\set ON_ERROR_STOP on
+
+CREATE ROLE bullion_app WITH LOGIN PASSWORD :'app_password' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+
+GRANT CONNECT ON DATABASE :"db_name" TO bullion_app;
 GRANT USAGE ON SCHEMA public TO bullion_app;
 
 -- Rights on tables that already exist, plus anything migrations create later.
@@ -38,8 +73,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE bullion_owner IN SCHEMA public
 -- it to SELECT + DELETE on `idempotency_keys` alone. Even holding BYPASSRLS it
 -- cannot read a single row of tenant data.
 
-CREATE ROLE bullion_maintenance WITH LOGIN PASSWORD 'devpassword'
+CREATE ROLE bullion_maintenance WITH LOGIN PASSWORD :'maintenance_password'
   NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
 
-GRANT CONNECT ON DATABASE bullion TO bullion_maintenance;
+GRANT CONNECT ON DATABASE :"db_name" TO bullion_maintenance;
 GRANT USAGE ON SCHEMA public TO bullion_maintenance;

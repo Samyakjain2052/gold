@@ -112,12 +112,34 @@ change.
 
 ### After the first deploy
 
-1. **Create the runtime role.** The application must connect as a
+1. **Create the runtime roles.** The application must connect as a
    non-superuser, non-owner role, or PostgreSQL RLS silently does nothing and
-   every tenant-isolation guarantee evaporates:
+   every tenant-isolation guarantee evaporates.
+
+   Generate the passwords here and pass them in. The script defaults them to
+   the local development value so the Docker entrypoint can run unattended, so
+   running it bare against Azure would give production a role whose password is
+   literally `devpassword`:
 
    ```bash
-   psql "$ADMIN_URL" -f apps/api/prisma/init/00_app_role.sql
+   APP_PASSWORD=$(openssl rand -base64 32)
+   MAINTENANCE_PASSWORD=$(openssl rand -base64 32)
+
+   psql "$ADMIN_URL" \
+     -v ON_ERROR_STOP=1 \
+     -v app_password="$APP_PASSWORD" \
+     -v maintenance_password="$MAINTENANCE_PASSWORD" \
+     -v db_name=bullion \
+     -f apps/api/prisma/init/00_app_role.sql
+   ```
+
+   Store both immediately — they are not recoverable from the server:
+
+   ```bash
+   az keyvault secret set --vault-name <kv> --name database-url \
+     --value "postgresql://bullion_app:$APP_PASSWORD@<host>/bullion?sslmode=require"
+   az keyvault secret set --vault-name <kv> --name maintenance-database-url \
+     --value "postgresql://bullion_maintenance:$MAINTENANCE_PASSWORD@<host>/bullion?sslmode=require"
    ```
 
 2. **Store secrets in Key Vault**, never in app settings:

@@ -108,9 +108,17 @@ jobs:
 
       # The application role must be a non-superuser, or RLS silently does
       # nothing and every isolation test passes for the wrong reason.
-      - name: Create application role
+      # Passwords and database name are passed in, not baked into the script.
+      # They must match the connection strings above exactly: when they did not,
+      # the roles were created fine and every test using them failed
+      # authentication, which reads as a broken suite rather than a broken
+      # credential.
+      - name: Create application and maintenance roles
         run: |
-          PGPASSWORD=testpassword psql -h localhost -U bullion_owner -d bullion_test \
+          psql -v ON_ERROR_STOP=1 -h localhost -U bullion_owner -d bullion_test \
+            -v app_password=testpassword \
+            -v maintenance_password=testpassword \
+            -v db_name=bullion_test \
             -f apps/api/prisma/init/00_app_role.sql
         env:
           PGPASSWORD: testpassword
