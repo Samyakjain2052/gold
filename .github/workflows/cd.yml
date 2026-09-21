@@ -1,0 +1,155 @@
+# Continuous deployment to Azure Container Apps.
+#
+# Deliberately manual (`workflow_dispatch`). Automatic deploy-on-merge is the
+# right end state, but it is only safe once the Entra External ID tenant and a
+# licensed market-data provider exist — until then every production start
+# correctly aborts with exit 78, and an auto-deploy would just be a red build on
+# every merge. Flip `push:` on once `infra/README.md`'s prerequisites are met.
+#
+# Authentication is OIDC federated credentials — no stored Azure password. The
+# three `AZURE_*` ids below are identifiers, not secrets; they are stored as
+# repository secrets only to keep the tenant layout out of a public repo.
+#
+# Required repository secrets:
+#   AZURE_CLIENT_ID          app registration with federated credential for this repo
+#   AZURE_TENANT_ID          directory containing that registration
+#   AZURE_SUBSCRIPTION_ID    target subscription
+#   DATABASE_MIGRATION_URL   admin-role connection string (DDL rights)
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+concurrency:
+  # Never let two deploys race to the same environment; queue instead.
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC federation
+
+env:
+  RESOURCE_GROUP: bullion-${{ inputs.environment }}-rg
+  CONTAINER_APP: bullion-${{ inputs.environment }}-api
+  REGISTRY: bullion${{ inputs.environment }}acr
+  IMAGE_NAME: bullion-api
+
+jobs:
+  # A deploy must never outrun the test suite. `workflow_run` would let a red
+  # commit through if CI were still in flight, so the gate is re-run here
+  # against the exact commit being shipped.
+  verify:
+    name: Test the commit being deployed
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Build, migrate and deploy
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Tagged with the commit SHA, never `latest`. A rollback is then a
+      # revision switch to a known tag rather than a rebuild of moving history.
+      - name: Build and push image
+        run: |
+          set -euo pipefail
+          az acr build \
+            --registry "$REGISTRY" \
+            --image "$IMAGE_NAME:${{ github.sha }}" \
+            --image "$IMAGE_NAME:${{ inputs.environment }}" \
+            --file apps/api/Dockerfile \
+            .
+
+      # Migrations run as their own step before the new image serves traffic
+      # (deployment-best-practices.md §7) — never from application startup,
+      # where N replicas would race to apply the same DDL.
+      #
+      # The runner's egress IP is opened just long enough to apply them, then
+      # closed in an `always()` step so a failed migration cannot leave the
+      # database reachable from the internet.
+      - name: Open firewall for runner
+        id: firewall
+        run: |
+          set -euo pipefail
+          RUNNER_IP=$(curl -fsS --max-time 10 https://api.ipify.org)
+          echo "rule=gh-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+          az postgres flexible-server firewall-rule create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "bullion-${{ inputs.environment }}-pg" \
+            --rule-name "gh-${{ github.run_id }}" \
+            --start-ip-address "$RUNNER_IP" \
+            --end-ip-address "$RUNNER_IP" \
+            --output none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply migrations
+        run: |
+          npm ci
+          npm run db:migrate --workspace apps/api
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+
+      - name: Close firewall
+        if: always() && steps.firewall.outputs.rule != ''
+        run: |
+          az postgres flexible-server firewall-rule delete \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "bullion-${{ inputs.environment }}-pg" \
+            --rule-name "${{ steps.firewall.outputs.rule }}" \
+            --yes --output none || true
+
+      - name: Deploy revision
+        run: |
+          set -euo pipefail
+          az containerapp update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$REGISTRY.azurecr.io/$IMAGE_NAME:${{ github.sha }}" \
+            --output none
+
+      # A container that cannot reach PostgreSQL or Redis is alive but useless,
+      # so the gate is readiness. Without this the job would go green while the
+      # revision crash-looped on bad configuration.
+      - name: Verify the new revision is serving
+        run: |
+          set -euo pipefail
+          FQDN=$(az containerapp show --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+              "https://$FQDN/health/ready" || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "ready after ${attempt} attempt(s): https://$FQDN"
+              exit 0
+            fi
+            echo "attempt ${attempt}: /health/ready -> ${code}"
+            sleep 10
+          done
+
+          echo "::error::new revision never became ready; traffic not switched"
+          az containerapp logs show --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" --tail 50 || true
+          exit 1

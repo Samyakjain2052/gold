@@ -74,9 +74,31 @@ async function token_for(oid: string): Promise<string> {
 let token_a = "";
 let token_b = "";
 
-/** Fetch a rule and return it with its current version. */
+/**
+ * Fetch a rule, whatever the outcome. Used by the tests that expect a denial.
+ */
 async function read_rule(token: string, id: string) {
   const response = await request(api).get(`${RULES}/${id}`).set("Authorization", `Bearer ${token}`);
+  return response;
+}
+
+/**
+ * Fetch a rule that is expected to exist and be readable.
+ *
+ * Callers reach straight for `body.data.version`, so an unchecked failure
+ * surfaced as `Cannot read properties of undefined` several lines further on,
+ * naming neither the status nor the request that actually failed — which is
+ * exactly how an intermittent failure here stayed unexplained. Asserting at the
+ * point of the request reports both.
+ */
+async function read_rule_ok(token: string, id: string) {
+  const response = await read_rule(token, id);
+
+  expect(
+    response.status,
+    `GET ${RULES}/${id} -> ${response.status} ${JSON.stringify(response.body)}`,
+  ).toBe(200);
+
   return response;
 }
 
@@ -161,7 +183,7 @@ describe("own-tenant pricing configuration", () => {
   });
 
   test("PricingApi_tenantAUpdatesOwnRule_incrementsVersion", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
 
     const response = await request(api)
       .patch(`${RULES}/${fx.tenant_a.gold_rule_id}`)
@@ -184,7 +206,7 @@ describe("own-tenant pricing configuration", () => {
   });
 
   test("PricingApi_deactivate_softDeletesAndKeepsHistory", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
 
     const response = await request(api)
       .delete(`${RULES}/${fx.tenant_a.gold_rule_id}`)
@@ -203,7 +225,7 @@ describe("own-tenant pricing configuration", () => {
 
   /** The response is the DTO, not the table. */
   test("PricingApi_response_neverExposesInternalColumns", async () => {
-    const response = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const response = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
     const rule = response.body.data;
 
     for (const internal of ["tenant_id", "created_by", "updated_by", "adjustment_value"]) {
@@ -329,7 +351,7 @@ describe("caller-supplied identity cannot influence authorization", () => {
 
   /** The audit actor comes from the context, never from the request. */
   test("PricingApi_auditActor_isTheAuthenticatedUserNotAClaimedOne", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
 
     await request(api)
       .patch(`${RULES}/${fx.tenant_a.gold_rule_id}`)
@@ -554,10 +576,10 @@ describe("exact money arithmetic and pricing semantics", () => {
    * rate to the nearest ₹1 must not move the stored ₹50/g by a paise.
    */
   test("PricingApi_configuredAdjustment_isUnchangedByDisplayRounding", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
 
     for (const step of [1, 100, 1000, 10_000]) {
-      const current = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+      const current = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
       const response = await request(api)
         .patch(`${RULES}/${fx.tenant_a.gold_rule_id}`)
         .set("Authorization", `Bearer ${token_a}`)
@@ -600,7 +622,7 @@ describe("optimistic concurrency", () => {
   });
 
   test("PricingApi_staleVersion_returns409AndChangesNothing", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
     const version = before.body.data.version;
 
     // First writer wins.
@@ -630,7 +652,7 @@ describe("optimistic concurrency", () => {
 
   /** The real race: two writers submitting simultaneously. */
   test("PricingApi_simultaneousUpdates_onlyOneSucceeds", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
     const version = String(before.body.data.version);
 
     const [first, second] = await Promise.all([
@@ -671,7 +693,7 @@ describe("optimistic concurrency", () => {
   });
 
   test("PricingApi_quotedEtag_isAccepted", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
     const response = await request(api)
       .patch(`${RULES}/${fx.tenant_a.gold_rule_id}`)
       .set("Authorization", `Bearer ${token_a}`)
@@ -769,7 +791,7 @@ describe("idempotency", () => {
   });
 
   test("PricingApi_retriedUpdate_doesNotDoubleApply", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
     const key = `update-${randomUUID()}`;
 
     const first = await request(api)
@@ -833,7 +855,7 @@ describe("audit trail", () => {
   });
 
   test("PricingApi_update_recordsBeforeAndAfterAndChangedFields", async () => {
-    const before = await read_rule(token_a, fx.tenant_a.gold_rule_id);
+    const before = await read_rule_ok(token_a, fx.tenant_a.gold_rule_id);
 
     await request(api)
       .patch(`${RULES}/${fx.tenant_a.gold_rule_id}`)

@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.ts",
@@ -20,7 +20,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "pricing:examples": "tsx scripts/pricing_examples.ts",
-    "maintenance:purge-idempotency": "tsx scripts/purge_idempotency_keys.ts"
+    "maintenance:purge-idempotency": "tsx src/jobs/purge_idempotency_keys.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

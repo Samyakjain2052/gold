@@ -1,0 +1,20 @@
+// Production build.
+//
+// `tsconfig.json` deliberately includes tests and prisma scripts so the editor
+// and `typecheck` see the whole workspace. Compiling with it is wrong twice
+// over: `rootDir: "."` pushes the entry point down to `dist/src/index.js` while
+// `package.json` points at `dist/index.js`, and the compiled test suite ships
+// inside the runtime image.
+//
+// This config emits only `src`, so the entry point lands where `start` expects
+// it and the image contains nothing but the service.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "tests", "scripts", "prisma"]
+}

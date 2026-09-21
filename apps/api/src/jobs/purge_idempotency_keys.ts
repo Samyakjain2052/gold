@@ -10,14 +10,20 @@
  * Production schedules it as an **Azure Container Apps Job** on a cron trigger,
  * which `api-standards.md` §11 nominates for exactly this shape of work:
  * "peripheral tasks … cleanup jobs as serverless". The command is in
- * `infra/README.md`; nothing is provisioned yet.
+ * `infra/README.md`.
  *
- *     npm run maintenance:purge-idempotency --workspace apps/api
+ * It lives under `src/` rather than `scripts/` so that it is compiled into
+ * `dist/` and runs under plain `node`. Left as a loose `.ts` file it would have
+ * forced `tsx` into the production image purely to execute one cron job.
+ *
+ *     npm run maintenance:purge-idempotency --workspace apps/api   # development
+ *     node dist/jobs/purge_idempotency_keys.js                     # container
  *
  * Exit codes: 0 success, 1 failure, 78 (EX_CONFIG) misconfiguration. A
  * scheduler treats a non-zero exit as a failed run, which is the signal that
  * cleanup has stopped happening.
  */
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -30,13 +36,34 @@ import {
   DEFAULT_BATCH_SIZE,
   DEFAULT_MAX_BATCHES,
   DEFAULT_RETENTION_HOURS,
-} from "../src/modules/maintenance/idempotency_cleanup.js";
+} from "../modules/maintenance/idempotency_cleanup.js";
 
+/**
+ * Load the repo-root `.env` in development only.
+ *
+ * The root is found by walking up rather than by a fixed `../../..`, because
+ * this file runs from two different depths — `src/jobs` under tsx and
+ * `dist/jobs` in the image — and a hardcoded depth would resolve to the wrong
+ * directory in one of them and quietly load nothing.
+ *
+ * In production nothing is loaded at all: the container supplies real
+ * environment variables, and a stray `.env` must never override them.
+ */
 async function load_local_env(): Promise<void> {
   if (process.env["NODE_ENV"] === "production") return;
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const { default: dotenv } = await import("dotenv");
-  dotenv.config({ path: path.resolve(here, "../../../.env"), quiet: true });
+
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    const candidate = path.join(dir, ".env");
+    if (fs.existsSync(candidate)) {
+      const { default: dotenv } = await import("dotenv");
+      dotenv.config({ path: candidate, quiet: true });
+      return;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return; // reached the filesystem root; nothing to load
+    dir = parent;
+  }
 }
 
 function positive_int(name: string, fallback: number): number {
