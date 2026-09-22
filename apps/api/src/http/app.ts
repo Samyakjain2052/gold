@@ -129,11 +129,39 @@ export function create_app(deps: AppDependencies): Express {
       logger,
     });
 
+    /**
+     * Authenticated responses are never stored by any cache.
+     *
+     * Applied at the mount rather than per handler, for the same reason
+     * `authenticate` is: a new route must not be able to forget it. Express
+     * sets no `Cache-Control` of its own, and `pricing_rules` sends an `ETag`,
+     * which makes a response *heuristically* cacheable — a browser on a shared
+     * showroom machine may then keep one tenant's pricing and audit history on
+     * disk after the user has signed out.
+     *
+     * RFC 9111 §3.5 already stops a shared cache storing a response to a
+     * request bearing `Authorization`, so this closes the private-cache half.
+     */
+    const no_store = (_req: Request, res: Response, next: NextFunction): void => {
+      res.setHeader("Cache-Control", "no-store, private");
+      next();
+    };
+
     // `authenticate` is applied at mount, so no handler below can be reached
     // without a derived context — it cannot be forgotten on a new route.
-    app.use("/api/v1/me", authenticate, create_me_router({ db: deps.db }));
-    app.use("/api/v1/pricing-rules", authenticate, create_pricing_router({ db: deps.db }));
-    app.use("/api/v1/audit-logs", authenticate, create_audit_router({ db: deps.db }));
+    app.use("/api/v1/me", authenticate, no_store, create_me_router({ db: deps.db }));
+    app.use(
+      "/api/v1/pricing-rules",
+      authenticate,
+      no_store,
+      create_pricing_router({ db: deps.db }),
+    );
+    app.use(
+      "/api/v1/audit-logs",
+      authenticate,
+      no_store,
+      create_audit_router({ db: deps.db }),
+    );
   }
 
   app.use((req: Request, _res: Response, next: NextFunction) => {

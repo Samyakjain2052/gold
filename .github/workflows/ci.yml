@@ -224,10 +224,23 @@ jobs:
         run: npm ci
 
       # A tracked .env is a Critical finding — deployment-best-practices.md §4.
+      #
+      # Two greps, not one with a negative lookahead. `(?!...)` is PCRE and is
+      # NOT valid ERE: `grep -E` rejects the whole pattern, exits non-zero, and
+      # the `if` below then takes the success path. The previous version of this
+      # step therefore passed for every input, including a committed .pem —
+      # a control that reported success while checking nothing.
       - name: Fail if secrets are tracked
         run: |
-          if git ls-files | grep -E '(^|/)\.env$|(^|/)\.env\.(?!example|template|sample)|\.pem$|\.key$|credentials\.json$|settings\.local\.json$' ; then
+          set -uo pipefail
+          tracked=$(git ls-files \
+            | grep -E '(^|/)\.env($|\.)|\.pem$|\.key$|credentials\.json$|settings\.local\.json$' \
+            | grep -vE '(^|/)\.env\.(example|template|sample)$' \
+            || true)
+
+          if [ -n "$tracked" ]; then
             echo "::error::Forbidden file tracked in git. Untrack it and rotate the credential."
+            echo "$tracked"
             exit 1
           fi
           echo "No forbidden files tracked."
@@ -235,7 +248,10 @@ jobs:
       # No secret may be compiled into a browser bundle.
       - name: Fail on suspicious NEXT_PUBLIC_ names
         run: |
-          if grep -rnE 'NEXT_PUBLIC_[A-Z_]*(SECRET|PASSWORD|SERVICE_ROLE|PRIVATE)' \
+          # KEY and TOKEN were missing, so NEXT_PUBLIC_MARKET_DATA_API_KEY —
+          # precisely the value that must never reach a browser — would have
+          # passed this check.
+          if grep -rnE 'NEXT_PUBLIC_[A-Z0-9_]*(SECRET|PASSWORD|SERVICE_ROLE|PRIVATE|KEY|TOKEN|CREDENTIAL)' \
                --include='*.ts' --include='*.tsx' --include='*.env*' . ; then
             echo "::error::A secret-looking value is exposed to the browser."
             exit 1

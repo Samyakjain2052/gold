@@ -66,16 +66,33 @@ export async function timed_check(
 /**
  * Market-data health.
  *
- * Reports `not_configured` until the provider abstraction lands in stage 4.
- * Deliberately not reported as `healthy` — a probe that claims health for a
- * component that does not yet exist is worse than no probe at all.
+ * The provider abstraction, the quote stream and the pricing engine all exist
+ * and are tested, but **nothing constructs them at runtime**: no component
+ * consumes `MarketDataService.on_quote`, writes `published_rates` or calls
+ * `publish_rate_event`. Until that publication pipeline exists, a replica has
+ * no market data at all.
+ *
+ * In production that is reported as `unhealthy`, not `not_configured`.
+ * `aggregate` deliberately treats `not_configured` as a non-failure — it means
+ * "not part of this build" — so leaving this component in that state would let
+ * `/health/ready` return 200 for a service that cannot price anything, and
+ * `cd.yml` gates its deployment on exactly that endpoint. A deploy would go
+ * green over a service with no rates.
+ *
+ * Outside production it stays `not_configured`, so local work and CI are not
+ * blocked by a component that is knowingly absent.
  */
 export function market_data_health(config: AppConfig): ComponentHealth {
-  return {
-    status: "not_configured",
-    detail: `provider "${config.MARKET_DATA_PROVIDER}" not yet wired (stage 4)`,
-    checked_at: now_iso(),
-  };
+  const detail =
+    `provider "${config.MARKET_DATA_PROVIDER}" is selected, but no rate ` +
+    `publication pipeline is running: quotes are never converted into ` +
+    `published_rates and no rate events are emitted`;
+
+  if (config.NODE_ENV === "production") {
+    return { status: "unhealthy", detail, checked_at: now_iso() };
+  }
+
+  return { status: "not_configured", detail, checked_at: now_iso() };
 }
 
 /** Roll component results into one overall status. */
