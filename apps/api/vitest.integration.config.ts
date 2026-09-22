@@ -32,6 +32,8 @@ export default defineConfig({
         "src/modules/idempotency/**/*.ts",
         "src/http/routes/pricing_rules.ts",
         "src/http/routes/audit_logs.ts",
+        "src/http/routes/public.ts",
+        "src/http/routes/me.ts",
       ],
       thresholds: {
         lines: 90,

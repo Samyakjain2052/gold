@@ -44,6 +44,7 @@ let fx: Fixtures;
 let signing_key: CryptoKey;
 let api: Express;
 let token_a = "";
+let token_b = "";
 
 async function token_for(oid: string): Promise<string> {
   const now_s = Math.floor(NOW.getTime() / 1000);
@@ -105,6 +106,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   fx = await seed_fixtures(owner);
   token_a = await token_for(fx.tenant_a.external_object_id);
+  token_b = await token_for(fx.tenant_b.external_object_id);
 });
 
 afterAll(async () => {
@@ -307,5 +309,85 @@ describe("realtime route", () => {
   test("PublicStream_withoutHub_isNotMounted", async () => {
     const response = await request(api).get(`${PUBLIC}/${fx.tenant_a.slug}/stream`);
     expect(response.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A shop that has not finished setting itself up
+// ---------------------------------------------------------------------------
+
+describe("incomplete tenant records", () => {
+  /**
+   * Branding is created during onboarding and can legitimately be absent. The
+   * dashboard must still be able to name the shop rather than rendering a blank
+   * heading, so the tenant's legal name is the fallback.
+   */
+  test("Me_withoutBranding_fallsBackToTheLegalName", async () => {
+    await owner.tenant_branding.deleteMany({ where: { tenant_id: fx.tenant_b.tenant_id } });
+
+    const response = await request(api)
+      .get("/api/v1/me")
+      .set("Authorization", `Bearer ${token_b}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.tenant.display_name).toBe(fx.tenant_b.legal_name);
+    expect(response.body.data.tenant.tagline).toBeNull();
+  });
+
+  /**
+   * Before a customer link is issued there is no public page, and the dashboard
+   * says so rather than linking to a slug that does not resolve.
+   */
+  test("Me_withoutCustomerLink_reportsNoPublicSlug", async () => {
+    await owner.customer_links.deleteMany({ where: { tenant_id: fx.tenant_b.tenant_id } });
+
+    const response = await request(api)
+      .get("/api/v1/me")
+      .set("Authorization", `Bearer ${token_b}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.tenant.public_slug).toBeNull();
+  });
+
+  /**
+   * A revoked link is not the shop's current address.
+   *
+   * Revocation is `is_active`, which is what `resolve_public_link` reads.
+   * `/me` must agree with it, or the dashboard shows a link the public page
+   * answers 410 for.
+   */
+  test("Me_withOnlyARevokedLink_reportsNoPublicSlug", async () => {
+    await owner.customer_links.updateMany({
+      where: { tenant_id: fx.tenant_b.tenant_id },
+      data: { is_active: false, revoked_at: new Date() },
+    });
+
+    const response = await request(api)
+      .get("/api/v1/me")
+      .set("Authorization", `Bearer ${token_b}`);
+
+    expect(response.body.data.tenant.public_slug).toBeNull();
+  });
+
+  test("PublicShop_withoutBranding_stillResolvesTheSlug", async () => {
+    await owner.tenant_branding.deleteMany({ where: { tenant_id: fx.tenant_b.tenant_id } });
+
+    const response = await request(api).get(`${PUBLIC}/${fx.tenant_b.slug}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.slug).toBe(fx.tenant_b.slug);
+    // Deliberately empty rather than the legal name: the public surface never
+    // discloses it.
+    expect(response.body.data.display_name).toBe("");
+  });
+
+  test("PublicRates_revokedSlug_returns410NotSilentlyAnotherShop", async () => {
+    await owner.customer_links.updateMany({
+      where: { tenant_id: fx.tenant_b.tenant_id },
+      data: { is_active: false, revoked_at: new Date() },
+    });
+
+    const response = await request(api).get(`${PUBLIC}/${fx.tenant_b.slug}/rates`);
+    expect(response.status).toBe(410);
   });
 });

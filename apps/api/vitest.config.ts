@@ -39,6 +39,17 @@ export default defineConfig({
         // NOT excluded and are measured here.
         "src/http/routes/pricing_rules.ts",
         "src/http/routes/audit_logs.ts",
+        // Stage 8. Both are thin transports over services that are themselves
+        // measured: the public routes resolve a slug and project through
+        // `public_service`, and `/me` is a single context-scoped read. They are
+        // only meaningful against real RLS, so they are covered by
+        // tests/integration/public_api.test.ts instead.
+        //
+        // `src/modules/realtime/**` stays INCLUDED: the hub's fan-out,
+        // authorisation and teardown are pure and are measured by
+        // tests/unit/rate_hub.test.ts.
+        "src/http/routes/public.ts",
+        "src/http/routes/me.ts",
       ],
       // testing-best-practices.md §17. Pricing and money are critical paths and
       // are held to 90%.

@@ -45,8 +45,14 @@ export function create_me_router(deps: MeRouterDependencies): Router {
           }),
           // The active link only. A rotated one still exists in the table so
           // old URLs can answer 410, but it is not the shop's current address.
+          //
+          // Filtered on `is_active`, which is what `resolve_public_link`
+          // actually decides revocation by. Filtering on `revoked_at` instead
+          // looked equivalent and is not: the two columns can disagree, and the
+          // dashboard would then advertise a link the public resolver answers
+          // 410 for.
           tx.customer_links.findFirst({
-            where: { tenant_id: context.tenant_id, revoked_at: null },
+            where: { tenant_id: context.tenant_id, is_active: true },
             select: { slug: true },
             orderBy: { created_at: "desc" },
           }),
