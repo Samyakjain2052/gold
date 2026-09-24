@@ -133,6 +133,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* A long unbroken string — a slug, an email, a shop name without spaces —
+   otherwise forces the whole page to scroll sideways on a phone. Set as a
+   default rather than patched per component, so a new component inherits it. */
+h1,
+h2,
+h3,
+p,
+dd,
+dt,
+li,
+td,
+th {
+  overflow-wrap: break-word;
+}
+
 h1,
 h2,
 h3 {

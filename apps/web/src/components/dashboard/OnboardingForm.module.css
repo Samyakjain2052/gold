@@ -1,7 +1,7 @@
 .panel {
   max-width: var(--measure);
   width: 100%;
-  padding: var(--space-6);
+  padding: var(--space-5);
   background: var(--surface-card);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -9,6 +9,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+@media (min-width: 30rem) {
+  .panel {
+    padding: var(--space-6);
+  }
 }
 
 .title {
@@ -59,6 +65,13 @@
   gap: var(--space-2);
 }
 
+/* A flex child will not shrink below its content width without this, so the
+   input pushed the row past the screen edge on a phone. */
+.linkRow .input {
+  flex: 1;
+  min-width: 0;
+}
+
 .prefix {
   font-family: var(--font-numeric);
   font-size: 0.9375rem;
@@ -80,8 +93,10 @@
   padding: var(--space-3);
 }
 
+/* Full width on a phone — a thumb-sized target across the screen — and only
+   hugging its content once there is room. */
 .primary {
-  align-self: flex-start;
+  align-self: stretch;
   min-height: 44px;
   padding: 0 var(--space-5);
   border: 0;
@@ -94,4 +109,10 @@
 .primary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+@media (min-width: 30rem) {
+  .primary {
+    align-self: flex-start;
+  }
 }
