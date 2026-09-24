@@ -89,7 +89,8 @@ const PRODUCTS = [
 export async function reset_database(owner: PrismaClient): Promise<void> {
   await owner.$executeRawUnsafe(`
     TRUNCATE TABLE
-      audit_logs, rate_update_events, published_rates, tenant_pricing_rules,
+      audit_logs, rate_publication_outbox, rate_update_events, published_rates,
+      tenant_pricing_rules,
       tenant_products, customer_links, tenant_contacts, tenant_branding,
       platform_admins, tenant_users, tenants, users, market_rates
     RESTART IDENTITY CASCADE
@@ -255,6 +256,22 @@ async function seed_tenant(
       },
     });
 
+    // Already delivered, so the fixture does not give the outbox publisher work
+    // to do in tests that are not about publication.
+    await tx.rate_publication_outbox.create({
+      data: {
+        tenant_id,
+        product_id: gold_product_id,
+        product_key: "GOLD_999",
+        rate_display_paise: 14_081_393n + (adjustment * 10n) / 1000n,
+        display_unit: "per_10_gram",
+        source_timestamp: new Date(),
+        freshness: "fresh",
+        trigger: "rule_change",
+        delivered_at: new Date(),
+      },
+    });
+
     await tx.audit_logs.create({
       data: {
         tenant_id,
@@ -345,6 +362,7 @@ export const TENANT_OWNED_TABLES = [
   "tenant_pricing_rules",
   "published_rates",
   "rate_update_events",
+  "rate_publication_outbox",
   "audit_logs",
 ] as const;
 

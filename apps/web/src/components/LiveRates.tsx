@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import type { PublicRate } from "@bullion/contracts";
-import { RateCard } from "./RateCard";
+import { RateBoard } from "./RateBoard";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { useRateStream } from "@/lib/useRateStream";
 import styles from "./LiveRates.module.css";
@@ -83,16 +83,7 @@ export function LiveRates({
           : ""}
       </div>
 
-      <ul className={styles.grid}>
-        {rates.map((rate) => (
-          <li key={rate.product_key}>
-            <RateCard
-              rate={rate}
-              updated={stream.last_changed.includes(rate.product_key)}
-            />
-          </li>
-        ))}
-      </ul>
+      <RateBoard rates={rates} changed={stream.last_changed} />
     </>
   );
 }

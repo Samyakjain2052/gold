@@ -12,6 +12,10 @@ about the code that exists, not about the code that does not.
 
 ## 1. The vertical slice is severed
 
+> **Superseded by the Stage 10 addendum at the end of this document.** The
+> pipeline described as missing below was built in Stage 10. This section is
+> kept as the record of what the audit found, not as current state.
+
 **This is the finding that matters.** Every component on the customer path
 exists, is tested, and is individually sound. They are not connected.
 
@@ -461,3 +465,99 @@ mean no customer can be served a real rate regardless of what else is ready.
 One claim in an earlier draft of this audit — that Redis subscriptions are not
 restored after a reconnect — was tested and found false, and has been corrected
 above rather than left as a plausible-sounding defect.
+
+---
+
+# Stage 10 addendum — the pipeline exists
+
+§1 of this audit reported the vertical slice as severed. That is no longer the
+case, and the sections below supersede it.
+
+## What was built
+
+```
+provider ─▶ MarketDataService ─▶ poller ─▶ pricing engine ─▶ published_rates ─┐
+  (leader-elected)                                                             ├ one txn
+                                                             outbox row ───────┘
+                                                                   │ after commit
+                                                  Redis ─▶ rate_hub ─▶ SSE ─▶ browser
+```
+
+**Poller.** One leader-elected consumer per environment, per `ARCHITECTURE.md`
+§6. Provider consumption is a function of the poll interval alone — it does not
+grow with replicas or customers. Redis fan-out and SSE connections still scale
+with customers; only the provider call is decoupled.
+
+**Leader election.** A Redis lease (`SET NX PX`, Lua compare-and-swap for renew
+and release). This is a lease, not consensus, and its failure assumptions are
+documented on `LeaderLock`: under a long GC pause or partition two pollers may
+briefly overlap. That is tolerable because the critical section is idempotent —
+`published_rates` is an upsert keyed on (tenant, product), so a concurrent
+recompute converges rather than corrupting. The observable cost is a doubled
+provider poll for a few seconds, not a wrong price. A fencing token is issued so
+a stale leader is detectable; it is not used to reject writes, because the
+writes it would guard are already idempotent.
+
+**Publication atomicity.** `published_rates`, `rate_update_events` and the
+outbox row are written in one transaction. Redis is never published to before
+commit, and an in-memory queue is never the durable bridge. Delivery is
+at-least-once: a publisher that dies between `PUBLISH` and `delivered_at`
+re-delivers, which is safe because an event carries state ("this product is now
+X"), the browser keys updates by `product_key`, and applying it twice is
+indistinguishable from once. Marking delivered *first* would turn that window
+into lost events, which is strictly worse.
+
+**Tenant isolation.** Choosing which tenants a quote affects is inherently
+cross-tenant and is answered by `tenants_affected_by_metal`, a SECURITY DEFINER
+function returning tenant ids and nothing else. Every read and write then runs
+inside that tenant's context under RLS. No part of the pipeline holds BYPASSRLS,
+and no tenant id it uses came from a browser.
+
+## Readiness, corrected
+
+`market_data_health()` is no longer a stub. States and their effects:
+
+| State | Liveness | Readiness |
+|---|---|---|
+| no pipeline in this composition | pass | pass outside production, **fail in production** |
+| provider disconnected or errored | pass | fail |
+| connected, no valid quote yet | pass | fail |
+| fresh | pass | pass |
+| stale | pass | pass, **degraded** |
+| expired | pass | fail |
+| outbox backlog over 500 | pass | fail |
+
+Liveness never depends on the provider: restarting loses every SSE connection
+and fixes nothing. `stale` is degraded rather than failed because the rate is
+real and the page labels it delayed; pulling the replica would take a working
+site down over a slow feed.
+
+## Failure behaviour
+
+| Scenario | Behaviour |
+|---|---|
+| Provider unavailable | Poll fails, is counted and logged; previous rates stand and age into stale then expired. No fabricated rate. |
+| Malformed quote | Rejected by `parse_quote` with a counted reason; nothing published. |
+| Stale quote | Published and labelled `stale` — real data, honestly marked. |
+| Expired quote | **Not published at all.** The previous rate stands and ages visibly. |
+| Redis unavailable | Rates still commit; the outbox backs up; readiness fails past 500. Events deliver when Redis returns. |
+| PostgreSQL unavailable | Nothing commits, so nothing is published. Readiness fails. |
+| Publisher restart | Committed events are found and delivered by the next publisher. |
+| Duplicate event | Harmless: same state applied twice. |
+| Two rapid quotes | Latest wins; outbox ids order them so a superseding rate never overtakes. |
+| Rule change during a tick | Both run in their own transaction against `published_rates`; the upsert converges. |
+| Two replicas contend | Exactly one holds the lease; the other never polls. |
+| Rule change with no feed | The rule still commits and is audited; publication is skipped and the next tick refreshes it. |
+
+## Publication semantics for the pricing API
+
+The recompute runs **inside the mutation's transaction**, so a rule change, its
+audit row, the new published rate and the pending event commit together. The
+`200` therefore means "your change and the resulting customer rate are both
+committed". Redis delivery is asynchronous and at-least-once; the API does not
+promise the event has reached a browser, only that it is durable and will.
+
+If no usable quote exists, the rule change still commits and the response is
+still `200`, with no publication. Failing the mutation because the feed is down
+would stop a shopkeeper configuring their shop during precisely the outage when
+they may need to.

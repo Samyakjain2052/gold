@@ -1,14 +1,20 @@
 .page {
   min-height: 100dvh;
-  padding: var(--space-5) var(--space-4) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  /* No bottom padding: the sticky action bar sits flush at the foot. */
+  padding: var(--space-4) var(--space-4) 0;
 }
 
 .container {
   max-width: var(--page-max);
+  width: 100%;
   margin-inline: auto;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-4);
+  padding-bottom: var(--space-6);
 }
 
 .rates {
@@ -57,6 +63,6 @@
 
 @media (min-width: 40rem) {
   .page {
-    padding: var(--space-7) var(--space-5) var(--space-8);
+    padding: var(--space-6) var(--space-5) 0;
   }
 }

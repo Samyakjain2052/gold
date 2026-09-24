@@ -415,7 +415,26 @@ Each stage ends somewhere demonstrable.
 | 10 | Dashboard UI | The shopkeeper product |
 | 11 | Logo upload, branding, link rotation | Onboarding complete |
 | 12 | Platform admin, observability, runbooks | Operable |
-| 13 | Real provider behind the abstraction | One module changes |
+| 13 | Real provider behind the abstraction | One adapter is added; §6 is already wired |
+
+### What Stage 10 actually built
+
+Stages 1–9 left the vertical slice severed: the provider abstraction, pricing
+engine, Redis fan-out and SSE all existed and were tested, but nothing joined
+them — `published_rates` was never written and `publish_rate_event` had no
+callers. Stage 10 built the join:
+
+| Component | File |
+|---|---|
+| Leader lease (Redis `SET NX PX` + CAS renew/release) | `platform/leader_lock.ts` |
+| Poller — the single market-data consumer | `modules/market_data/market_poller.ts` |
+| Recompute and persist | `modules/publication/publication_service.ts` |
+| Durable publication outbox | `rate_publication_outbox` + `outbox_publisher.ts` |
+| Readiness from real pipeline state | `modules/publication/pipeline_health.ts` |
+| Composition | `modules/publication/pipeline.ts` |
+
+The claim that adding a provider means "one module changes" is now true, and was
+not before.
 
 Stages 3 and 6 come early on purpose: pricing correctness and tenant isolation are the two things that are
 painful to retrofit and damaging to get wrong.

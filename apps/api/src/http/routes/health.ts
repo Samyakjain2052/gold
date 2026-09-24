@@ -15,6 +15,15 @@ import {
 
 export interface HealthDependencies {
   readonly config: AppConfig;
+  /**
+   * The market pipeline's health, when one is running. Absent compositions
+   * report `not_configured`, or `unhealthy` in production.
+   */
+  readonly market_data_probe?: () => ComponentHealth;
+  /** Operator detail behind `/health/market-data`. */
+  readonly market_data_detail?: () => object;
+  /** Live SSE counts, for the realtime section of `/health`. */
+  readonly realtime?: () => { connections: number; tenant_channels: number };
   /** Resolves when the database answers a trivial query. */
   readonly ping_database: () => Promise<void>;
   /** Resolves when Redis answers PING. */
@@ -64,7 +73,7 @@ export function create_health_router(deps: HealthDependencies): Router {
       aggregate({
         database,
         redis,
-        market_data: market_data_health(config),
+        market_data: market_data_health(config, deps.market_data_probe),
       }),
     );
   });
@@ -78,7 +87,30 @@ export function create_health_router(deps: HealthDependencies): Router {
   });
 
   router.get("/market-data", (_req: Request, res: Response) => {
-    send(res, market_data_health(config));
+    const health = market_data_health(config, deps.market_data_probe);
+    res
+      .status(status_code(health.status))
+      .json({ ...health, ...(deps.market_data_detail?.() ?? {}) });
+  });
+
+  /**
+   * Realtime fan-out counts.
+   *
+   * Stage 9 noted these existed on the hub but were exposed nowhere, so
+   * "how many customers are connected?" was unanswerable in production.
+   */
+  router.get("/realtime", (_req: Request, res: Response) => {
+    const counts = deps.realtime?.() ?? null;
+    if (counts === null) {
+      res.status(200).json({ status: "not_configured", checked_at: new Date().toISOString() });
+      return;
+    }
+    res.status(200).json({
+      status: "healthy",
+      sse_connections: counts.connections,
+      tenant_channels: counts.tenant_channels,
+      checked_at: new Date().toISOString(),
+    });
   });
 
   // Bare /health is an alias for readiness — what Container Apps probes.
@@ -93,7 +125,7 @@ export function create_health_router(deps: HealthDependencies): Router {
       aggregate({
         database,
         redis,
-        market_data: market_data_health(config),
+        market_data: market_data_health(config, deps.market_data_probe),
       }),
     );
   });

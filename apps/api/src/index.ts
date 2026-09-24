@@ -21,6 +21,7 @@ import {
   type SupportedAlgorithm,
 } from "./modules/auth/index.js";
 import { create_rate_hub } from "./modules/realtime/rate_hub.js";
+import { create_rate_pipeline } from "./modules/publication/pipeline.js";
 
 /**
  * Build the token verifier, or return undefined when identity is not configured.
@@ -128,11 +129,23 @@ async function main(): Promise<void> {
     );
   }
 
+  // The rate pipeline: provider → poller → pricing → published_rates → outbox
+  // → Redis. Leader-elected, so only one replica consumes the provider.
+  const pipeline = create_rate_pipeline({
+    config,
+    db: database,
+    redis,
+    logger,
+    clock: system_clock,
+  });
+  await pipeline.start();
+
   const app = create_app({
     config,
     logger,
     db: database,
     hub,
+    pipeline,
     ...(verifier === undefined ? {} : { verifier }),
     ping_database: () => ping_database(database),
     ping_redis: () => ping_redis(redis),
@@ -156,6 +169,9 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, "shutting down");
     server.close();
+    // Releases the leader lease and flushes pending events, so a replacement
+    // replica takes over immediately rather than after a lease timeout.
+    await pipeline.stop().catch(() => {});
     // Realtime listeners are released before the connections they sit on, so a
     // redeploy does not leave subscriptions attached to a closing socket.
     await hub.close().catch(() => {});

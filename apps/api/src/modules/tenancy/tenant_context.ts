@@ -280,8 +280,31 @@ export async function with_context<T>(
   context: AuthenticatedTenantContext | PublicTenantContext,
   work: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
-  const tenant_id = context.tenant_id;
+  return with_tenant_context(db, context.tenant_id, work);
+}
 
+/**
+ * Run `work` under a tenant id that was derived server-side.
+ *
+ * `with_context` is the form every request path uses, and it exists precisely
+ * so that a tenant is taken from a verified context rather than named directly.
+ * This variant takes the id itself, for the one caller that legitimately has no
+ * request context: the publication pipeline.
+ *
+ * A market tick moves every tenant selling that metal, so the pipeline iterates
+ * tenants. The ids it iterates come from `tenants_affected_by_metal`, a
+ * SECURITY DEFINER query over the database — never from a request, a header or
+ * a body. Each tenant's work then runs under RLS exactly as a request would;
+ * nothing here bypasses a policy.
+ *
+ * **Do not call this from an HTTP handler.** A route that has a tenant id to
+ * pass has taken it from somewhere, and that somewhere is the client.
+ */
+export async function with_tenant_context<T>(
+  db: PrismaClient,
+  tenant_id: string,
+  work: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
   return db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenant_id}, TRUE)`;
     return work(tx);

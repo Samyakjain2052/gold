@@ -1,0 +1,53 @@
+.bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background: var(--surface-card);
+  border-top: 1px solid var(--border-strong);
+  /* Clears the home indicator on iOS so the last action is not under it. */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  box-shadow: 0 -2px 12px rgb(28 25 23 / 6%);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  max-width: var(--page-max);
+  margin-inline: auto;
+}
+
+.item {
+  flex: 1;
+}
+
+.action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  /* Comfortably above the 44px minimum: this is the control a customer taps
+     one-handed, often in a shop. */
+  min-height: 56px;
+  text-decoration: none;
+  color: var(--text-secondary);
+}
+
+.action:hover {
+  color: var(--accent-strong);
+  background: var(--surface-sunken);
+}
+
+.glyph {
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

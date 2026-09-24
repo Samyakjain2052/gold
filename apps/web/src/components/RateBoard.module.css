@@ -1,0 +1,176 @@
+/* The board reads from across a room, so the rate is the largest thing on it
+   and everything else recedes to a caption. */
+.board {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 var(--space-2);
+  table-layout: fixed;
+}
+
+/* The gold header bar. A single flat wash rather than a gradient: it has to sit
+   behind text at small sizes and stay legible. */
+.headRow th {
+  background: var(--board-head);
+  color: var(--board-head-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+}
+
+.headRow th:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.headRow th:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  text-align: right;
+}
+
+.headProduct {
+  width: 55%;
+}
+
+.headRate {
+  width: 45%;
+}
+
+.row > * {
+  background: var(--surface-card);
+  border-block: 1px solid var(--border-subtle);
+  padding: var(--space-3) var(--space-4);
+  vertical-align: middle;
+}
+
+.row > *:first-child {
+  border-inline-start: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.row > *:last-child {
+  border-inline-end: 1px solid var(--border-subtle);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+/* A brief wash when a live update lands. The number itself never moves —
+   animating a price makes it harder to read, which is the opposite of the aim. */
+.updated > * {
+  animation: settle 1.2s ease-out;
+}
+
+@keyframes settle {
+  from {
+    background: var(--accent-wash);
+    border-color: var(--accent);
+  }
+  to {
+    background: var(--surface-card);
+    border-color: var(--border-subtle);
+  }
+}
+
+.product {
+  text-align: left;
+  font-weight: 500;
+}
+
+.label {
+  display: block;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+.badge {
+  font-size: 0.6875rem;
+  padding: 2px var(--space-2);
+}
+
+.unit {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.toggle {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  /* Not a 44px target: it is a secondary disclosure beside a row that is
+     already tall, and inflating it would push the next rate off a phone. */
+  min-height: 32px;
+}
+
+.breakdown {
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-weight: 400;
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 0.8125rem;
+}
+
+.line dt {
+  color: var(--text-muted);
+}
+
+.line dd {
+  margin: 0;
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.expired {
+  margin-top: var(--space-2);
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--status-expired);
+}
+
+.rate {
+  text-align: right;
+}
+
+/* Tabular figures so digits line up down the column — the whole point of a
+   board is comparing two numbers without reading them twice. */
+.amount {
+  font-family: var(--font-numeric);
+  font-size: clamp(1.375rem, 1rem + 2.4vw, 2rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.rateExpired .amount {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}

@@ -103,6 +103,7 @@ model tenants {
   pricing_rules tenant_pricing_rules[]
   published     published_rates[]
   rate_events   rate_update_events[]
+  publications  rate_publication_outbox[]
   audit_logs    audit_logs[]
 
   @@index([status], name: "idx_tenants_status")
@@ -241,6 +242,7 @@ model products {
   pricing_rules   tenant_pricing_rules[]
   published       published_rates[]
   rate_events     rate_update_events[]
+  publications    rate_publication_outbox[]
 
   @@unique([metal_code, purity_num, purity_den], map: "uq_products_metal_purity")
   @@index([metal_code], name: "idx_products_metal_code")
@@ -452,4 +454,33 @@ model audit_logs {
 
   @@index([tenant_id, created_at(sort: Desc)], name: "idx_audit_logs_tenant_created")
   @@index([tenant_id, entity_type, entity_id, created_at(sort: Desc)], name: "idx_audit_logs_entity")
+}
+
+/// The durable bridge between a committed rate and its Redis notification.
+/// Written in the same transaction as `published_rates`; drained by the
+/// publisher. See migration 20260923120000 for the delivery semantics.
+model rate_publication_outbox {
+  id                 BigInt       @id @default(autoincrement())
+  tenant_id          String       @db.Uuid
+  product_id         String       @db.Uuid
+
+  /// Denormalised so the publisher builds the wire payload without a join.
+  product_key        String
+  rate_display_paise BigInt
+  display_unit       display_unit
+  /// The provider's own stamp, never our receipt time.
+  source_timestamp   DateTime     @db.Timestamptz(3)
+  freshness          String
+  trigger            rate_trigger
+
+  created_at         DateTime     @default(now()) @db.Timestamptz(3)
+  /// NULL until a publisher has put it on Redis.
+  delivered_at       DateTime?    @db.Timestamptz(3)
+  attempts           Int          @default(0)
+  last_error         String?
+
+  tenant  tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, created_at(sort: Desc)], name: "idx_rate_publication_outbox_tenant_created")
 }

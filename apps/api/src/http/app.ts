@@ -37,6 +37,19 @@ export interface AppDependencies extends HealthDependencies {
    * that accepts a connection and never delivers anything.
    */
   readonly hub?: RateHub;
+  /**
+   * The rate pipeline, when one is running. Supplies market-data health and the
+   * recompute hook the pricing API uses to republish on a rule change.
+   */
+  readonly pipeline?: {
+    health(): import("../platform/health.js").ComponentHealth;
+    detail(): object;
+    recompute_rule(
+      tx: import("@prisma/client").Prisma.TransactionClient,
+      tenant_id: string,
+      rule_id: string,
+    ): Promise<boolean>;
+  };
 }
 
 declare global {
@@ -81,7 +94,26 @@ export function create_app(deps: AppDependencies): Express {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
-  app.use("/health", create_health_router(deps));
+  app.use(
+    "/health",
+    create_health_router({
+      ...deps,
+      ...(deps.pipeline === undefined
+        ? {}
+        : {
+            market_data_probe: () => deps.pipeline!.health(),
+            market_data_detail: () => deps.pipeline!.detail(),
+          }),
+      ...(deps.hub === undefined
+        ? {}
+        : {
+            realtime: () => ({
+              connections: deps.hub!.listener_count(),
+              tenant_channels: deps.hub!.channel_count(),
+            }),
+          }),
+    }),
+  );
 
   // Public customer surface — no authentication by design. Mounted before the
   // authenticated API so it is obvious at a glance which routes are anonymous,
@@ -154,7 +186,12 @@ export function create_app(deps: AppDependencies): Express {
       "/api/v1/pricing-rules",
       authenticate,
       no_store,
-      create_pricing_router({ db: deps.db }),
+      create_pricing_router({
+        db: deps.db,
+        ...(deps.pipeline === undefined
+          ? {}
+          : { recompute_rule: deps.pipeline.recompute_rule.bind(deps.pipeline) }),
+      }),
     );
     app.use(
       "/api/v1/audit-logs",

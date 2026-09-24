@@ -37,7 +37,7 @@ export function FreshnessBadge({
   className,
 }: {
   freshness: Freshness;
-  className?: string;
+  className?: string | undefined;
 }) {
   const presentation = PRESENTATION[freshness];
 

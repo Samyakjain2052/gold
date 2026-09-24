@@ -156,6 +156,23 @@ export interface MutationContext {
   readonly request: AuditRequestContext;
   /** Present when the caller supplied `Idempotency-Key`. */
   readonly idempotency?: { readonly key: string; readonly fingerprint: string };
+  /**
+   * Recomputes the customer-facing rate for a rule, inside this mutation's
+   * transaction.
+   *
+   * Injected rather than imported so this service keeps no dependency on the
+   * market-data or publication layers: a pricing rule is configuration, and
+   * must stay editable and testable with no feed running. Absent in
+   * compositions without a market pipeline, in which case a rule change
+   * persists and the published rate is refreshed by the next market tick.
+   *
+   * Returning false is not a failure — see `recompute_rule_in_transaction`.
+   */
+  readonly recompute?: (
+    tx: Prisma.TransactionClient,
+    tenant_id: string,
+    rule_id: string,
+  ) => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +342,11 @@ export async function update_rule(
     }
 
     const after = await load_own_rule(tx, context, rule_id);
+
+    // In the same transaction as the rule and its audit row, so a shopkeeper's
+    // change is either fully visible — rule, published rate and pending event
+    // — or not applied at all.
+    await mutation.recompute?.(tx, context.tenant_id, rule_id);
 
     await write_audit(tx, {
       tenant_id: context.tenant_id,

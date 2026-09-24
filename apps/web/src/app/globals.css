@@ -25,6 +25,11 @@
   --text-muted: #78716c;
   --text-inverse: #faf8f5;
 
+  /* The board's header bars. A deep bronze rather than a bright gold: it sits
+     behind small uppercase text and has to carry AA contrast against white. */
+  --board-head: #6b4e11;
+  --board-head-text: #fdf6e6;
+
   /* One accent. Deep enough on paper to carry AA as text. */
   --accent: #8a6516;
   --accent-strong: #6b4e11;
@@ -88,6 +93,10 @@
     --accent: #e3b448;
     --accent-strong: #f0c76a;
     --accent-wash: #2a2115;
+
+    /* Lifted in dark mode so the bar reads as a band rather than a hole. */
+    --board-head: #4a370c;
+    --board-head-text: #f5e6c2;
 
     --status-fresh: #4ade80;
     --status-fresh-wash: #14261a;

@@ -174,12 +174,47 @@ export class MarketDataService {
     return this.#stream.stats();
   }
 
+  /**
+   * Pull the latest raw payloads from the provider.
+   *
+   * Exposed so the poller never holds a provider reference of its own. The
+   * payloads are unvalidated by contract — `ingest_many` is what turns them
+   * into quotes.
+   */
+  async provider_latest(symbols: readonly string[]): Promise<unknown[]> {
+    return this.#provider.get_latest_quotes(symbols);
+  }
+
+  /**
+   * Validate and accept a batch of raw payloads, returning those accepted.
+   *
+   * Rejections are reported to rejection listeners exactly as on the push path.
+   * A polling provider and a streaming one therefore share one ingestion path,
+   * so neither can wave a quote through the other's checks.
+   */
+  ingest_many(payloads: readonly unknown[]): QuoteSnapshot[] {
+    const accepted: QuoteSnapshot[] = [];
+    for (const payload of payloads) {
+      if (payload === null || payload === undefined) continue;
+      const snapshot = this.#ingest(payload);
+      if (snapshot !== null) accepted.push(snapshot);
+    }
+    return accepted;
+  }
+
   /** Discard ingestion history. Used on a cold reconnect and between tests. */
   reset(): void {
     this.#stream.reset();
   }
 
-  #ingest(payload: unknown): void {
+  /**
+   * Validate and accept one raw payload.
+   *
+   * Returns the accepted snapshot, or null when the payload was rejected.
+   * Listeners are notified either way, so a push subscriber and a pull caller
+   * see identical behaviour — there is one ingestion path, not two.
+   */
+  #ingest(payload: unknown): QuoteSnapshot | null {
     let quote: MarketQuote;
 
     try {
@@ -191,20 +226,21 @@ export class MarketDataService {
         detail:
           error instanceof QuoteValidationError ? error.message : "unknown parse failure",
       });
-      return;
+      return null;
     }
 
     const result = this.#stream.accept(quote);
 
     if (result.outcome === "rejected") {
       this.#notify_rejection(result);
-      return;
+      return null;
     }
 
     const snapshot = evaluate_freshness(result.quote, this.#policy, this.#clock);
     for (const listener of this.#accepted_listeners) {
       listener(snapshot);
     }
+    return snapshot;
   }
 
   #notify_rejection(result: IngestResult & { outcome: "rejected" }): void {

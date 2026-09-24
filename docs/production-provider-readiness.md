@@ -14,41 +14,34 @@ prohibition in the terms is not evidence.
 
 ## 0. What must exist on our side first
 
-A provider cannot be plugged in today, and this is the single largest finding of
-the Stage 9 audit.
+**Built in Stage 10.** The publication pipeline that was missing — poller,
+leader election, recompute, `published_rates` write, durable outbox and Redis
+delivery — now exists and is exercised end to end against real PostgreSQL and
+Redis. `ARCHITECTURE.md` §13's claim that onboarding a provider means "one
+module changes" is now accurate.
 
-The provider abstraction, quote validation, freshness policy, `MarketDataService`
-and the pricing engine all exist and are tested. **Nothing constructs or
-connects them at runtime.** Specifically, in `apps/api/src`:
+What remains for a new provider is genuinely one adapter:
 
-- `MarketDataService` is never instantiated outside its own module.
-- The pricing engine is never called outside its own module.
-- `published_rates` is only ever **read** (`public_service.ts`); no code path
-  writes it.
-- `publish_rate_event` has **zero callers**.
+1. Implement `MarketDataProvider` (`start`, `stop`, `get_latest_quotes`,
+   `subscribe`, `on_status`, `health`) emitting **raw payloads**. Do not
+   construct `MarketQuote` directly — `parse_quote` must validate vendor data on
+   the same path as every other source.
+2. Add one branch to `create_provider` in `modules/publication/pipeline.ts`.
+3. Set the configuration in §9 below.
 
-The public page and the SSE stream therefore serve only rows that a seed or a
-test fixture inserted. `ARCHITECTURE.md` §6 describes the missing component:
+Nothing else changes. The poller, pricing, publication, outbox, Redis, SSE and
+the frontend all consume the abstraction rather than the vendor.
 
-> 1. The **poller** (leader-elected) fetches from the configured provider …
-> 4. The **pricing engine** recomputes rates … 5. Results publish to
-> `rates:tenant:{tenant_id}` on Redis pub/sub.
+Two notes carried over from the Stage 9 audit that are still true:
 
-`ARCHITECTURE.md` §13 claims onboarding a real provider means "one module
-changes". That is **not currently true**, and should not be relied on when
-planning. The following must be built first, and none of it is provider-specific:
-
-| # | Component | Responsibility |
-|---|---|---|
-| 1 | Leader election | A Redis lock so exactly one replica polls, per §6. Without it every replica polls, multiplying provider cost and rate-limit consumption. |
-| 2 | Poller loop | Drive `MarketDataService.start()`, honour the provider's rate limits, surface health. |
-| 3 | Recompute-and-publish | On each accepted quote: for each affected tenant/product, run the pricing engine, write `published_rates`, emit `publish_rate_event`. |
-| 4 | Recompute on rule change | `pricing_rule_service` currently updates a rule without recomputing the published rate, so a shopkeeper's edit is not visible to customers until the next tick. |
-| 5 | Health wiring | `market_data_health()` is a stub. It must report real provider status, last accepted quote and freshness. |
-
-Until (1)–(5) exist, licensing a provider buys nothing.
-
----
+- **Freshness defaults assume a ~60s feed.** `FRESHNESS_STALE_AFTER_MS` (120s)
+  and `FRESHNESS_EXPIRED_AFTER_MS` (600s) must be set from the provider's real
+  cadence. For a twice-daily source such as IBJA every quote would be `expired`
+  within ten minutes and **nothing would ever be published**, because the
+  pipeline refuses to publish from an expired quote.
+- **The sanity limit rejects large jumps.** `MARKET_RATE_SANITY_MAX_MOVE_BPS`
+  defaults to 500 bps. A provider whose first quote after a gap legitimately
+  moves more than 5% will have it rejected as an implausible tick.
 
 ## 1. Licensing — the blocking gate
 

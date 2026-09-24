@@ -163,12 +163,16 @@ describe("live updates", () => {
       rate({ market_rate: "1403139", shop_adjustment: "5000", rounding: "0" }),
     ]);
 
-    expect(screen.getByText("Market rate")).toBeInTheDocument();
+    // The breakdown is available before the update...
+    expect(screen.getByRole("button", { name: /show breakdown/i })).toBeInTheDocument();
 
     act(() => source.open());
     act(() => source.send("rate_update", update()));
 
-    expect(screen.queryByText("Market rate")).not.toBeInTheDocument();
+    // ...and gone after it, because a live event carries no components. Keeping
+    // the old market rate beside a new total would show a breakdown whose parts
+    // no longer add up to it.
+    expect(screen.queryByRole("button", { name: /breakdown/i })).not.toBeInTheDocument();
     expect(screen.getByText("₹14,090.00")).toBeInTheDocument();
   });
 

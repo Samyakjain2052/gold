@@ -26,7 +26,7 @@
  * never declared what they were overwriting.
  */
 import { Router, type NextFunction, type Request, type Response } from "express";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { AppError } from "../../platform/errors.js";
 import { require_tenant_actor } from "../../modules/auth/authorization.js";
@@ -50,6 +50,20 @@ import {
 
 export interface PricingRouterDependencies {
   readonly db: PrismaClient;
+  /**
+   * Recomputes a rule's published customer rate inside the mutation's
+   * transaction. Supplied by the composition root when a market pipeline is
+   * running.
+   *
+   * Absent, a rule change still persists and is audited; the published rate is
+   * refreshed by the next market tick instead. That is the documented
+   * behaviour of a deployment with no feed, not a silent failure.
+   */
+  readonly recompute_rule?: (
+    tx: Prisma.TransactionClient,
+    tenant_id: string,
+    rule_id: string,
+  ) => Promise<boolean>;
 }
 
 const rule_id_param = z.uuid("rule id must be a UUID");
@@ -96,7 +110,10 @@ function required_version(req: Request): number {
 }
 
 /** Request metadata carried into the audit row. */
-function mutation_context(req: Request): MutationContext {
+function mutation_context(
+  req: Request,
+  deps: PricingRouterDependencies,
+): MutationContext {
   const key = req.header("idempotency-key");
 
   const base = {
@@ -105,6 +122,7 @@ function mutation_context(req: Request): MutationContext {
       ip_address: req.ip ?? null,
       user_agent: req.header("user-agent") ?? null,
     },
+    ...(deps.recompute_rule === undefined ? {} : { recompute: deps.recompute_rule }),
   };
 
   if (key === undefined || key.trim() === "") return base;
@@ -166,7 +184,7 @@ export function create_pricing_router(deps: PricingRouterDependencies): Router {
         db,
         context,
         parsed.data,
-        mutation_context(req),
+        mutation_context(req, deps),
       );
 
       set_etag(res, response.version);
@@ -198,7 +216,7 @@ export function create_pricing_router(deps: PricingRouterDependencies): Router {
         id.data,
         version,
         parsed.data,
-        mutation_context(req),
+        mutation_context(req, deps),
       );
 
       set_etag(res, response.version);
@@ -222,7 +240,7 @@ export function create_pricing_router(deps: PricingRouterDependencies): Router {
         context,
         id.data,
         version,
-        mutation_context(req),
+        mutation_context(req, deps),
       );
 
       set_etag(res, response.version);

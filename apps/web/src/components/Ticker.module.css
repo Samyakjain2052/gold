@@ -1,0 +1,61 @@
+.ticker {
+  overflow: hidden;
+  background: var(--board-head);
+  color: var(--board-head-text);
+  border-radius: var(--radius-sm);
+  /* Full-bleed on a phone: the strip reads as a band across the page. */
+  padding-block: var(--space-2);
+}
+
+.track {
+  display: flex;
+  gap: 3rem;
+  width: max-content;
+  animation: scroll 38s linear infinite;
+}
+
+/* WCAG 2.2.2: motion over five seconds must be pausable. */
+.track:hover,
+.track:focus-visible {
+  animation-play-state: paused;
+}
+
+.text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding-inline-start: 3rem;
+}
+
+@keyframes scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    /* Half the doubled track, so the second copy lands exactly where the
+       first began and the loop has no seam. */
+    transform: translateX(-50%);
+  }
+}
+
+/* No motion at all: the notice is wrapped and shown in full instead of
+   scrolling past. */
+@media (prefers-reduced-motion: reduce) {
+  .track {
+    animation: none;
+    width: auto;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .text {
+    white-space: normal;
+    padding-inline-start: var(--space-4);
+  }
+
+  .text[aria-hidden="true"] {
+    display: none;
+  }
+}

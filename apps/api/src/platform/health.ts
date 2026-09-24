@@ -66,33 +66,28 @@ export async function timed_check(
 /**
  * Market-data health.
  *
- * The provider abstraction, the quote stream and the pricing engine all exist
- * and are tested, but **nothing constructs them at runtime**: no component
- * consumes `MarketDataService.on_quote`, writes `published_rates` or calls
- * `publish_rate_event`. Until that publication pipeline exists, a replica has
- * no market data at all.
+ * Delegates to the pipeline probe supplied by the composition root. The logic
+ * lives in `modules/publication/pipeline_health.ts` beside the pipeline it
+ * describes; this stays a thin adapter so `platform` keeps no dependency on a
+ * domain module.
  *
- * In production that is reported as `unhealthy`, not `not_configured`.
- * `aggregate` deliberately treats `not_configured` as a non-failure — it means
- * "not part of this build" — so leaving this component in that state would let
- * `/health/ready` return 200 for a service that cannot price anything, and
- * `cd.yml` gates its deployment on exactly that endpoint. A deploy would go
- * green over a service with no rates.
- *
- * Outside production it stays `not_configured`, so local work and CI are not
- * blocked by a component that is knowingly absent.
+ * With no probe — a composition with no pipeline — the answer is
+ * `not_configured` outside production and `unhealthy` in it: a production
+ * replica that cannot price anything must not report itself deployable.
  */
-export function market_data_health(config: AppConfig): ComponentHealth {
+export function market_data_health(
+  config: AppConfig,
+  probe?: () => ComponentHealth,
+): ComponentHealth {
+  if (probe !== undefined) return probe();
+
   const detail =
     `provider "${config.MARKET_DATA_PROVIDER}" is selected, but no rate ` +
-    `publication pipeline is running: quotes are never converted into ` +
-    `published_rates and no rate events are emitted`;
+    `publication pipeline is running in this composition`;
 
-  if (config.NODE_ENV === "production") {
-    return { status: "unhealthy", detail, checked_at: now_iso() };
-  }
-
-  return { status: "not_configured", detail, checked_at: now_iso() };
+  return config.NODE_ENV === "production"
+    ? { status: "unhealthy", detail, checked_at: now_iso() }
+    : { status: "not_configured", detail, checked_at: now_iso() };
 }
 
 /** Roll component results into one overall status. */

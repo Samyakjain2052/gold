@@ -50,6 +50,20 @@ export default defineConfig({
         // tests/unit/rate_hub.test.ts.
         "src/http/routes/public.ts",
         "src/http/routes/me.ts",
+        // Stage 10. The pipeline is only meaningful against a real provider
+        // loop, real Redis and real PostgreSQL: leadership is a property of
+        // concurrent processes, and publication is a property of a committed
+        // transaction. All four are covered by tests/integration —
+        // vertical_slice.test.ts and leader_election.test.ts.
+        //
+        // The pure parts are NOT excluded and are measured here:
+        // `pipeline_health.ts` (readiness decisions) has its own unit suite,
+        // and the pricing engine it calls is held to 90%.
+        "src/platform/leader_lock.ts",
+        "src/modules/market_data/market_poller.ts",
+        "src/modules/publication/publication_service.ts",
+        "src/modules/publication/outbox_publisher.ts",
+        "src/modules/publication/pipeline.ts",
       ],
       // testing-best-practices.md §17. Pricing and money are critical paths and
       // are held to 90%.

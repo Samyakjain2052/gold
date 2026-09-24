@@ -5,6 +5,8 @@ import { ApiError, fetch_public_rates, fetch_public_shop, public_stream_url } fr
 import { LiveRates } from "@/components/LiveRates";
 import { SimulatedBanner } from "@/components/SimulatedBanner";
 import { ShopHeader } from "@/components/ShopHeader";
+import { Ticker, default_notices } from "@/components/Ticker";
+import { ShopActions } from "@/components/ShopActions";
 import { LinkReplaced } from "@/components/LinkReplaced";
 import styles from "./page.module.css";
 
@@ -110,6 +112,8 @@ export default async function ShopPage({ params }: PageProps) {
 
         <ShopHeader shop={shop} />
 
+        <Ticker messages={default_notices(shop.display_name)} />
+
         <section aria-labelledby="rates-heading" className={styles.rates}>
           <h2 className={styles.ratesHeading} id="rates-heading">
             Today&rsquo;s rates
@@ -121,10 +125,12 @@ export default async function ShopPage({ params }: PageProps) {
         <footer className={styles.footer}>
           <p>
             Rates are published by {shop.display_name} and are indicative.
-            Confirm the final price with the shop before purchase.
+            Making charges, wastage and GST are additional where applicable.
           </p>
         </footer>
       </div>
+
+      <ShopActions shop={shop} />
     </main>
   );
 }
