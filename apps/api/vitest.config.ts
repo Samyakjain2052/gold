@@ -64,6 +64,12 @@ export default defineConfig({
         "src/modules/publication/publication_service.ts",
         "src/modules/publication/outbox_publisher.ts",
         "src/modules/publication/pipeline.ts",
+        // Onboarding writes seven rows across six RLS-protected tables in one
+        // transaction, and its whole point is that the policies accept them.
+        // That is only demonstrable against a real database — covered by
+        // tests/integration/onboarding.test.ts, including the pure slug rules.
+        "src/modules/onboarding/**",
+        "src/http/routes/onboarding.ts",
       ],
       // testing-best-practices.md §17. Pricing and money are critical paths and
       // are held to 90%.

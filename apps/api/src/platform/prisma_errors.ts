@@ -23,6 +23,7 @@ export const CONSTRAINTS = {
   active_pricing_rule: "uq_tenant_pricing_rules_active",
   /** One stored response per (tenant, idempotency key). */
   idempotency_key: "pk_idempotency_keys",
+  active_customer_link: "uq_customer_links_active_slug",
 } as const;
 
 export function is_unique_violation(error: unknown): boolean {

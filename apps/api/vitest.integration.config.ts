@@ -38,6 +38,8 @@ export default defineConfig({
         "src/modules/market_data/market_poller.ts",
         "src/modules/publication/publication_service.ts",
         "src/modules/publication/outbox_publisher.ts",
+        "src/modules/onboarding/onboarding_service.ts",
+        "src/http/routes/onboarding.ts",
       ],
       thresholds: {
         /**

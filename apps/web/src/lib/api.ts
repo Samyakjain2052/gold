@@ -13,6 +13,8 @@
 import type {
   AuditEntry,
   Envelope,
+  OnboardingRequest,
+  OnboardingResult,
   PricingRule,
   ProblemDocument,
   PublicRate,
@@ -230,5 +232,23 @@ export async function fetch_audit_log(
     `/api/v1/audit-logs?limit=${String(limit)}`,
     { token },
   );
+  return data;
+}
+
+/**
+ * Create a shop for the signed-in user.
+ *
+ * `409` means this account already has one — a double-submitted form, most
+ * likely — and the caller should reload rather than retry.
+ */
+export async function create_shop(
+  token: string,
+  body: OnboardingRequest,
+): Promise<OnboardingResult> {
+  const { data } = await api_request<OnboardingResult>("/api/v1/onboarding", {
+    method: "POST",
+    token,
+    body,
+  });
   return data;
 }

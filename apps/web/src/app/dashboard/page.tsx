@@ -4,12 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import type { PricingRule, SessionSummary, UpdatePricingRule } from "@bullion/contracts";
 import {
   ApiError,
+  create_shop,
   fetch_pricing_rules,
   fetch_session,
   update_pricing_rule,
 } from "@/lib/api";
 import { acquire_token, active_account, get_msal, sign_in, sign_out } from "@/lib/auth";
 import { PricingRuleEditor, type SaveResult } from "@/components/dashboard/PricingRuleEditor";
+import { OnboardingForm, type CreateResult } from "@/components/dashboard/OnboardingForm";
 import styles from "./page.module.css";
 
 /**
@@ -30,6 +32,8 @@ import styles from "./page.module.css";
 type Phase =
   | { kind: "loading" }
   | { kind: "signed_out" }
+  /** Verified, but this identity owns no shop yet. */
+  | { kind: "needs_shop" }
   | { kind: "ready"; session: SessionSummary; rules: PricingRule[] }
   | { kind: "error"; message: string };
 
@@ -67,6 +71,14 @@ export default function Dashboard() {
         // The token was rejected. Treat it as signed out rather than showing an
         // error the user cannot act on.
         set_phase({ kind: "signed_out" });
+        return;
+      }
+
+      // Verified, but no tenant membership: a shopkeeper who has never set up a
+      // shop. That is the normal first visit, not a failure, so it leads to
+      // onboarding rather than an error the user cannot act on.
+      if (error instanceof ApiError && error.status === 403) {
+        set_phase({ kind: "needs_shop" });
         return;
       }
       set_phase({
@@ -127,6 +139,41 @@ export default function Dashboard() {
     [],
   );
 
+  const create = useCallback(
+    async (shop_name: string, slug: string | undefined): Promise<CreateResult> => {
+      const msal = await get_msal();
+      const token = await acquire_token(msal);
+
+      if (token === null) {
+        return {
+          ok: false,
+          error: new ApiError(401, null, "Your session expired. Please sign in again."),
+        };
+      }
+
+      try {
+        const shop = await create_shop(token, {
+          shop_name,
+          ...(slug === undefined ? {} : { slug }),
+        });
+        // Re-read rather than construct the session locally: the server decides
+        // the final slug, and a collision suffix means it may not be the one
+        // this form previewed.
+        await load();
+        return { ok: true, shop };
+      } catch (error) {
+        return {
+          ok: false,
+          error:
+            error instanceof ApiError
+              ? error
+              : new ApiError(0, null, "Could not create your shop."),
+        };
+      }
+    },
+    [load],
+  );
+
   const reload = useCallback(() => {
     set_busy(true);
     void load().finally(() => set_busy(false));
@@ -156,6 +203,14 @@ export default function Dashboard() {
             Sign in
           </button>
         </div>
+      </main>
+    );
+  }
+
+  if (phase.kind === "needs_shop") {
+    return (
+      <main className={styles.centred} id="main">
+        <OnboardingForm on_create={create} />
       </main>
     );
   }

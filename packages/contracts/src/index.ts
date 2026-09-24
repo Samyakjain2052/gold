@@ -3,6 +3,8 @@ export type {
   AuditEntry,
   Envelope,
   Freshness,
+  OnboardingRequest,
+  OnboardingResult,
   PricingRule,
   ProblemDocument,
   PublicContact,

@@ -107,42 +107,101 @@ function log_failure(
   );
 }
 
+/**
+ * Verify the bearer token and nothing else.
+ *
+ * Establishes **who** the caller is without asking what they are entitled to.
+ * Exactly one route needs this: onboarding, where a verified shopkeeper has no
+ * tenant yet and `derive_principal_context` would correctly refuse them.
+ *
+ * It is the first half of `create_authenticate`, shared rather than
+ * reimplemented, so there is one token-verification path in the system and a
+ * change to it cannot apply to one route and miss the other.
+ *
+ * A handler behind this middleware has a `principal` and **no** `auth_context`.
+ * It must therefore not touch tenant data except through a context it derives
+ * itself — which, for onboarding, is the tenant it is creating.
+ */
+export function create_verify_identity(deps: {
+  readonly verifier: JwtVerifier;
+  readonly logger: Logger;
+}): RequestHandler {
+  const { verifier, logger } = deps;
+
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    const principal = await verify_bearer(req, verifier, logger, next);
+    if (principal === null) return;
+
+    req.principal = principal;
+    next();
+  };
+}
+
+/**
+ * Shared token verification.
+ *
+ * Returns the principal, or null having already called `next` with the right
+ * failure. Keeping the failure mapping here means both middlewares report an
+ * expired token, a forged `kid` and an unreachable JWKS identically.
+ */
+async function verify_bearer(
+  req: Request,
+  verifier: JwtVerifier,
+  logger: Logger,
+  next: NextFunction,
+): Promise<VerifiedPrincipal | null> {
+  const token = extract_bearer_token(req.header("authorization"));
+
+  if (token === null) {
+    log_failure(logger, req, "missing_token", "no bearer token supplied");
+    next(AppError.unauthenticated("Authentication required"));
+    return null;
+  }
+
+  try {
+    return await verifier.verify(token);
+  } catch (error) {
+    if (error instanceof AuthenticationError) {
+      log_failure(logger, req, error.reason, error.message);
+      next(
+        error.is_infrastructure_failure
+          ? AppError.upstream_unavailable(to_client_message(error.reason))
+          : AppError.unauthenticated(to_client_message(error.reason)),
+      );
+      return null;
+    }
+
+    // Anything unrecognised is still an auth failure, not a 500 — an
+    // unexpected verifier fault must not be reported as a server error the
+    // caller could mistake for a transient glitch worth retrying with the
+    // same token.
+    log_failure(logger, req, "malformed_token", "verification failed");
+    next(AppError.unauthenticated("Authentication required"));
+    return null;
+  }
+}
+
+/**
+ * Read the verified identity a handler must act as.
+ *
+ * Throws rather than returning undefined, for the same reason
+ * `auth_context_of` does: reaching this without the middleware is a routing
+ * bug, and a permissive default would be an authentication hole.
+ */
+export function principal_of(req: Request): VerifiedPrincipal {
+  const principal = req.principal;
+  if (principal === undefined) {
+    throw AppError.unauthenticated("Authentication required");
+  }
+  return principal;
+}
+
 export function create_authenticate(deps: AuthenticateDependencies): RequestHandler {
   const { verifier, db, logger } = deps;
 
   return async (req: Request, _res: Response, next: NextFunction) => {
-    const token = extract_bearer_token(req.header("authorization"));
-
-    if (token === null) {
-      log_failure(logger, req, "missing_token", "no bearer token supplied");
-      next(AppError.unauthenticated("Authentication required"));
-      return;
-    }
-
-    let principal: VerifiedPrincipal;
-
-    try {
-      principal = await verifier.verify(token);
-    } catch (error) {
-      if (error instanceof AuthenticationError) {
-        log_failure(logger, req, error.reason, error.message);
-
-        next(
-          error.is_infrastructure_failure
-            ? AppError.upstream_unavailable(to_client_message(error.reason))
-            : AppError.unauthenticated(to_client_message(error.reason)),
-        );
-        return;
-      }
-
-      // Anything unrecognised is still an auth failure, not a 500 — an
-      // unexpected verifier fault must not be reported as a server error the
-      // caller could mistake for a transient glitch worth retrying with the
-      // same token.
-      log_failure(logger, req, "malformed_token", "verification failed");
-      next(AppError.unauthenticated("Authentication required"));
-      return;
-    }
+    const principal = await verify_bearer(req, verifier, logger, next);
+    if (principal === null) return;
 
     try {
       // Identity established; now find what it is entitled to. Note that

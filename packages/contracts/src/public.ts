@@ -179,3 +179,26 @@ export interface AuditEntry {
   readonly created_at: string;
   readonly actor_role: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Onboarding
+// ---------------------------------------------------------------------------
+
+/**
+ * Creating a shop for a signed-in shopkeeper.
+ *
+ * Carries no tenant, user or role: identity comes from the verified token and
+ * ownership is decided by the server. The API rejects any of them outright.
+ */
+export interface OnboardingRequest {
+  readonly shop_name: string;
+  /** Optional. Derived from the name when absent. */
+  readonly slug?: string;
+}
+
+export interface OnboardingResult {
+  readonly slug: string;
+  readonly display_name: string;
+  /** Products enabled with a zero adjustment, ready for the shop to price. */
+  readonly products: number;
+}

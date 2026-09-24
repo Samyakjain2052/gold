@@ -16,8 +16,9 @@ import { create_pricing_router } from "./routes/pricing_rules.js";
 import { create_audit_router } from "./routes/audit_logs.js";
 import { create_public_router } from "./routes/public.js";
 import { create_me_router } from "./routes/me.js";
+import { create_onboarding_router } from "./routes/onboarding.js";
 import type { RateHub } from "../modules/realtime/rate_hub.js";
-import { create_authenticate } from "./middleware/authenticate.js";
+import { create_authenticate, create_verify_identity } from "./middleware/authenticate.js";
 import { AuthorizationError } from "../modules/auth/authorization.js";
 import type { PrismaClient } from "@prisma/client";
 import type { JwtVerifier } from "../modules/auth/jwt_verifier.js";
@@ -178,6 +179,23 @@ export function create_app(deps: AppDependencies): Express {
       res.setHeader("Cache-Control", "no-store, private");
       next();
     };
+
+    /**
+     * Onboarding sits behind identity verification only.
+     *
+     * `authenticate` derives a tenant context and refuses a user with no
+     * membership — which is every caller here. Mounting it behind the full
+     * middleware would make it unreachable by exactly the people it exists for.
+     *
+     * The handler therefore has a verified `principal` and no `auth_context`,
+     * and the only tenant it may write is the one it creates.
+     */
+    app.use(
+      "/api/v1/onboarding",
+      create_verify_identity({ verifier: deps.verifier, logger }),
+      no_store,
+      create_onboarding_router({ db: deps.db, logger }),
+    );
 
     // `authenticate` is applied at mount, so no handler below can be reached
     // without a derived context — it cannot be forgotten on a new route.
