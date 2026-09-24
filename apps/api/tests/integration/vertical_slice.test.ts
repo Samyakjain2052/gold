@@ -971,3 +971,131 @@ describe("what is deliberately not published", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Percentage rules, and the change log
+// ---------------------------------------------------------------------------
+
+describe("percentage adjustments through the pipeline", () => {
+  /**
+   * Every fixture uses an absolute rule, so the percentage branch had never
+   * been exercised end to end. The two kinds must stay mutually exclusive:
+   * a percentage rule prices off basis points and its `adjustment_value` is
+   * ignored, not added.
+   */
+  test("Slice_percentageRule_publishesAndReconciles", async () => {
+    await with_tenant_context(db, fx.tenant_a.tenant_id, (tx) =>
+      tx.tenant_pricing_rules.updateMany({
+        where: { tenant_id: fx.tenant_a.tenant_id, product_id: fx.tenant_a.gold_product_id },
+        // 250 bps = 2.5%. adjustment_value stays at its absolute value and must
+        // have no effect.
+        data: { adjustment_kind: "percentage", adjustment_bps: 250 },
+      }),
+    );
+
+    const service = market_service();
+    await publish_for_quote(deps(), ingest(service, GOLD_RUPEES, NOW));
+
+    const row = await published_gold(fx.tenant_a.tenant_id);
+
+    // The market rate is unchanged by the adjustment kind.
+    expect(row?.base_display_paise).toBe(EXPECTED_BASE_PAISE);
+
+    // 2.5% of the base, not the ₹500 the absolute rule would have produced.
+    expect(row?.adjustment_display_paise).not.toBe(EXPECTED_ADJUSTMENT_PAISE);
+    expect(row?.adjustment_display_paise).toBeGreaterThan(0n);
+
+    // ADR-0005 still holds for a percentage rule.
+    expect(
+      (row?.base_display_paise ?? 0n) +
+        (row?.adjustment_display_paise ?? 0n) +
+        (row?.rounding_delta_paise ?? 0n),
+    ).toBe(row?.rate_display_paise);
+
+    // A percentage of the base is a fixed ratio of it, whatever the rounding.
+    const ratio =
+      (Number(row?.adjustment_display_paise ?? 0n) / Number(row?.base_display_paise ?? 1n)) * 10_000;
+    expect(Math.round(ratio)).toBe(250);
+  });
+
+  test("Slice_percentageRule_reachesTheOutbox", async () => {
+    await with_tenant_context(db, fx.tenant_a.tenant_id, (tx) =>
+      tx.tenant_pricing_rules.updateMany({
+        where: { tenant_id: fx.tenant_a.tenant_id, product_id: fx.tenant_a.gold_product_id },
+        data: { adjustment_kind: "percentage", adjustment_bps: 250 },
+      }),
+    );
+
+    const service = market_service();
+    await publish_for_quote(deps(), ingest(service, GOLD_RUPEES, NOW));
+
+    const pending = await owner.rate_publication_outbox.findFirst({
+      where: { tenant_id: fx.tenant_a.tenant_id, delivered_at: null },
+      orderBy: { id: "desc" },
+      select: { rate_display_paise: true },
+    });
+    const row = await published_gold(fx.tenant_a.tenant_id);
+
+    // The event carries the same rate the database holds — the outbox is a
+    // prompt to look at published_rates, never a separate source of truth.
+    expect(pending?.rate_display_paise).toBe(row?.rate_display_paise);
+  });
+});
+
+describe("the change log records direction", () => {
+  /**
+   * `rate_update_events` is what a shopkeeper reads to see how their rate
+   * moved. It must distinguish a rise from a fall, and a first publication from
+   * a repeat.
+   */
+  test("Slice_firstPublication_isRecordedAsUnchanged", async () => {
+    // Clear the fixture's seeded rate so this is genuinely the first.
+    await with_tenant_context(db, fx.tenant_a.tenant_id, (tx) =>
+      tx.published_rates.deleteMany({ where: { tenant_id: fx.tenant_a.tenant_id } }),
+    );
+
+    const service = market_service();
+    await publish_for_quote(deps(), ingest(service, GOLD_RUPEES, NOW));
+
+    const event = await owner.rate_update_events.findFirst({
+      where: { tenant_id: fx.tenant_a.tenant_id, product_id: fx.tenant_a.gold_product_id },
+      orderBy: { id: "desc" },
+      select: { direction: true, old_rate_paise: true, trigger: true },
+    });
+
+    expect(event?.direction).toBe("unchanged");
+    expect(event?.old_rate_paise).toBeNull();
+    expect(event?.trigger).toBe("market_tick");
+  });
+
+  test("Slice_risingThenFallingRate_recordsUpThenDown", async () => {
+    const service = market_service();
+
+    await publish_for_quote(deps(), ingest(service, GOLD_RUPEES, NOW, 1));
+    await publish_for_quote(
+      deps(),
+      ingest(service, HIGHER_RUPEES, new Date(NOW.getTime() + 1_000), 2),
+    );
+
+    const after_rise = await owner.rate_update_events.findFirst({
+      where: { tenant_id: fx.tenant_a.tenant_id, product_id: fx.tenant_a.gold_product_id },
+      orderBy: { id: "desc" },
+      select: { direction: true },
+    });
+    expect(after_rise?.direction).toBe("up");
+
+    // Back down, within the sanity limit.
+    const falling = market_service();
+    await publish_for_quote(
+      deps(),
+      ingest(falling, GOLD_RUPEES, new Date(NOW.getTime() + 2_000), 3),
+    );
+
+    const after_fall = await owner.rate_update_events.findFirst({
+      where: { tenant_id: fx.tenant_a.tenant_id, product_id: fx.tenant_a.gold_product_id },
+      orderBy: { id: "desc" },
+      select: { direction: true },
+    });
+    expect(after_fall?.direction).toBe("down");
+  });
+});
