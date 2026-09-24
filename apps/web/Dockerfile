@@ -44,9 +44,13 @@ FROM node:22-slim AS runtime
 
 WORKDIR /app
 
+# NEXT_DIST_DIR matches `npm run build`, which writes to `.next-build` rather
+# than `.next` so a verification build cannot clobber a running dev server's
+# output. `next start` must be told the same directory.
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000
+    PORT=3000 \
+    NEXT_DIST_DIR=.next-build
 
 COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/
@@ -55,7 +59,7 @@ COPY packages/contracts/package.json packages/contracts/
 RUN npm ci --workspace apps/web --include-workspace-root --omit=dev --ignore-scripts \
  && npm cache clean --force
 
-COPY --from=build /app/apps/web/.next ./apps/web/.next
+COPY --from=build /app/apps/web/.next-build ./apps/web/.next-build
 COPY --from=build /app/apps/web/next.config.ts ./apps/web/
 COPY --from=build /app/packages/contracts ./packages/contracts
 

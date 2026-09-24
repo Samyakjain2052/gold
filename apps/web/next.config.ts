@@ -9,6 +9,21 @@ const config: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
+  /**
+   * Build output directory.
+   *
+   * `next dev` and `next build` both write to `.next` by default, so running a
+   * verification build while a dev server is up silently overwrites the dev
+   * server's chunks and CSS manifest. The page then serves its markup with a
+   * 404 on `layout.css`, which looks exactly like broken styling and is
+   * nothing of the sort.
+   *
+   * Setting `NEXT_DIST_DIR` gives such a build its own directory. `npm run
+   * build` does this, so a verification build can never disturb a running dev
+   * server again.
+   */
+  distDir: process.env["NEXT_DIST_DIR"] ?? ".next",
+
   // `packages/contracts` ships TypeScript source rather than a build artefact,
   // so Next must compile it alongside the app.
   transpilePackages: ["@bullion/contracts"],

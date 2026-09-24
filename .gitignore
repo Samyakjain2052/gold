@@ -49,3 +49,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Verification builds, kept out of the dev server's .next
+.next-build/
