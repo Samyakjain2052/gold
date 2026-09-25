@@ -149,18 +149,36 @@ union needed no migration.
 
 ---
 
-## 7. Tests
+## 7. Code layout and tests
 
-Integration (`tests/integration/tenant_settings.test.ts`, 37 tests) covers the
-partial-update semantics, the accent-colour refusals, the recompute wiring, and
-isolation — that a write by tenant A never changes tenant B's branding or
-product configuration, proven against real RLS as the non-owner application
-role.
+Each service is split the way `pricing_rule_service.ts` and
+`pricing_rule_dto.ts` are, and for the same reason:
 
-Component (`tests/ShopSettingsForm.test.tsx`, `tests/ProductSettings.test.tsx`,
-36 tests) covers the diff directly, since it decides what reaches the database,
-plus per-control saving, failure reporting, and re-seeding from the server's
-answer rather than from what was typed.
+| File | Contains | Measured by |
+|---|---|---|
+| `tenant_settings_dto.ts` | request schema, audit allowlist, column mapping | unit |
+| `tenant_settings_service.ts` | the transaction under RLS | integration |
+| `tenant_products_dto.ts` | defaults, merge order, recompute decision | unit |
+| `tenant_products_service.ts` | the transaction under RLS | integration |
+
+The split is not cosmetic. The decisions in the `_dto` files are fully
+determined by their inputs and are worth pinning down exhaustively and cheaply;
+the services' correctness *is* their database behaviour, and a unit-mocked test
+of those would assert that a mock was called rather than that isolation holds.
+The service files and `routes/tenant.ts` are therefore excluded from the unit
+coverage gate, as `vitest.config.ts` records.
+
+- **Unit** (89 tests) — every accent-colour refusal, every field the schema must
+  reject, that an absent field never becomes an `undefined` column write, that
+  the audit allowlist drops an unknown field, and that `false`/`0` survive the
+  merge (with `||` instead of `??`, a shopkeeper could never turn anything off).
+- **Integration** (37 tests) — partial-update semantics, recompute wiring, and
+  isolation: that a write by tenant A never changes tenant B's branding or
+  product configuration, proven against real RLS as the non-owner application
+  role.
+- **Component** (36 tests) — the diff directly, since it decides what reaches
+  the database, plus per-control saving, failure reporting, and re-seeding from
+  the server's answer rather than from what was typed.
 
 ---
 

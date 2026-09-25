@@ -14,19 +14,16 @@
  * by a factor of ten, which is exactly the kind of error a customer acts on.
  *
  * So a unit change triggers an immediate recompute through the same hook the
- * pricing API uses. If no market quote is available the recompute is skipped
- * and the next tick corrects it; the stale row is not left to be read as
- * though it were in the new unit, because `published_rates.display_unit` is
- * stored alongside and the public projection reports what it actually is.
+ * pricing API uses, inside the same transaction, so the setting and the rate it
+ * governs commit together. If no pricing rule exists there is nothing to
+ * recompute; `published_rates.display_unit` is stored alongside the amount and
+ * the public projection reports the unit the row actually carries, so a stale
+ * row is never reinterpreted as though it were in the new unit.
  *
- * ## `show_base_rate` needs no recompute
- *
- * It is read at query time by `get_public_rates`, which withholds the
- * components when it is off. Nothing stored changes, and the very next read
- * reflects the new choice.
+ * The decisions themselves — defaults, merge order, and whether a recompute is
+ * needed — live in `tenant_products_dto.ts` and are unit-tested there.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { z } from "zod";
 import { require_capability } from "../auth/authorization.js";
 import {
   actor_from_context,
@@ -36,32 +33,22 @@ import {
 import type { AuthenticatedTenantContext } from "../tenancy/tenant_context.js";
 import { with_context } from "../tenancy/tenant_context.js";
 import { AppError } from "../../platform/errors.js";
+import {
+  default_display_unit,
+  merge_config,
+  requires_recompute,
+  type ProductConfig,
+  type TenantProductView,
+  type UpdateProductRequest,
+} from "./tenant_products_dto.js";
 
-export const DISPLAY_UNITS = ["per_gram", "per_10_gram", "per_kilogram"] as const;
-
-export const update_product_request = z
-  .object({
-    is_enabled: z.boolean().optional(),
-    display_unit: z.enum(DISPLAY_UNITS).optional(),
-    show_base_rate: z.boolean().optional(),
-    display_order: z.number().int().min(0).max(999).optional(),
-  })
-  .strict();
-
-export type UpdateProductRequest = z.infer<typeof update_product_request>;
-
-export interface TenantProductView {
-  readonly product_id: string;
-  readonly label: string;
-  readonly metal: string;
-  readonly purity: { readonly num: number; readonly den: number };
-  readonly is_enabled: boolean;
-  readonly display_unit: string;
-  readonly show_base_rate: boolean;
-  readonly display_order: number;
-  /** Whether a pricing rule exists; without one the product cannot publish. */
-  readonly has_pricing_rule: boolean;
-}
+export {
+  DISPLAY_UNITS,
+  update_product_request,
+  type DisplayUnit,
+  type TenantProductView,
+  type UpdateProductRequest,
+} from "./tenant_products_dto.js";
 
 /** Recomputes a product's published rate inside the caller's transaction. */
 export type ProductRecompute = (
@@ -122,7 +109,8 @@ export async function list_products(
         purity: { num: product.purity_num, den: product.purity_den },
         is_enabled: own?.is_enabled ?? false,
         display_unit:
-          own?.display_unit ?? (product.metal_code === "SILVER" ? "per_kilogram" : "per_10_gram"),
+          (own?.display_unit as TenantProductView["display_unit"] | undefined) ??
+          default_display_unit(product.metal_code),
         show_base_rate: own?.show_base_rate ?? false,
         display_order: own?.display_order ?? index,
         has_pricing_rule: priced.has(product.id),
@@ -157,7 +145,7 @@ export async function update_product(
       throw AppError.not_found("No such product");
     }
 
-    const before = await tx.tenant_products.findUnique({
+    const before = (await tx.tenant_products.findUnique({
       where: { tenant_id_product_id: { tenant_id: context.tenant_id, product_id } },
       select: {
         is_enabled: true,
@@ -165,43 +153,15 @@ export async function update_product(
         show_base_rate: true,
         display_order: true,
       },
-    });
+    })) as ProductConfig | null;
 
-    const defaults = {
-      is_enabled: false,
-      display_unit: product.metal_code === "SILVER" ? "per_kilogram" : "per_10_gram",
-      show_base_rate: false,
-      display_order: 0,
-    } as const;
-
-    // Every key is present: defaults supply all four, and `before`/`input`
-    // only ever narrow them. Typed explicitly so the create below is not
-    // handed an `undefined` the column cannot take.
-    const merged: {
-      is_enabled: boolean;
-      display_unit: "per_gram" | "per_10_gram" | "per_kilogram";
-      show_base_rate: boolean;
-      display_order: number;
-    } = {
-      is_enabled: input.is_enabled ?? before?.is_enabled ?? defaults.is_enabled,
-      display_unit: (input.display_unit ??
-        before?.display_unit ??
-        defaults.display_unit) as "per_gram" | "per_10_gram" | "per_kilogram",
-      show_base_rate:
-        input.show_base_rate ?? before?.show_base_rate ?? defaults.show_base_rate,
-      display_order: input.display_order ?? before?.display_order ?? defaults.display_order,
-    };
+    const merged = merge_config(product.metal_code, before, input);
 
     await tx.tenant_products.upsert({
       where: { tenant_id_product_id: { tenant_id: context.tenant_id, product_id } },
-      create: {
-        tenant_id: context.tenant_id,
-        product_id,
-        is_enabled: merged.is_enabled,
-        display_unit: merged.display_unit,
-        show_base_rate: merged.show_base_rate,
-        display_order: merged.display_order,
-      },
+      create: { tenant_id: context.tenant_id, product_id, ...merged },
+      // Only the keys the request carried, so a concurrent change to a field
+      // this request did not mention survives.
       update: {
         ...(input.is_enabled === undefined ? {} : { is_enabled: input.is_enabled }),
         ...(input.display_unit === undefined ? {} : { display_unit: input.display_unit }),
@@ -221,13 +181,7 @@ export async function update_product(
       request,
     });
 
-    // A unit change invalidates the stored rate, which is an amount in the old
-    // unit. Recompute inside this transaction so the setting and the rate it
-    // governs commit together.
-    const unit_changed =
-      input.display_unit !== undefined && input.display_unit !== before?.display_unit;
-
-    if (unit_changed && recompute !== undefined) {
+    if (requires_recompute(before, input) && recompute !== undefined) {
       const rule = await tx.tenant_pricing_rules.findFirst({
         where: { tenant_id: context.tenant_id, product_id, is_active: true },
         select: { id: true },

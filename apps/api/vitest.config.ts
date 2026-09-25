@@ -70,6 +70,19 @@ export default defineConfig({
         // tests/integration/onboarding.test.ts, including the pure slug rules.
         "src/modules/onboarding/**",
         "src/http/routes/onboarding.ts",
+        // Shop settings. The services are transactions under RLS whose point is
+        // that one tenant's write cannot touch another's rows, and that a unit
+        // change and the rate it invalidates commit together — neither is
+        // demonstrable without a database. Covered by
+        // tests/integration/tenant_settings.test.ts.
+        //
+        // Their PURE halves are NOT excluded and are measured here:
+        // `tenant_settings_dto.ts` (request schema, audit allowlist, column
+        // mapping) and `tenant_products_dto.ts` (defaults, merge order,
+        // recompute decision) have their own unit suites.
+        "src/modules/tenant/tenant_settings_service.ts",
+        "src/modules/tenant/tenant_products_service.ts",
+        "src/http/routes/tenant.ts",
       ],
       // testing-best-practices.md §17. Pricing and money are critical paths and
       // are held to 90%.
