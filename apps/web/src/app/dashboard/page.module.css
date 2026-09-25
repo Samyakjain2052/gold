@@ -183,6 +183,18 @@
   font-size: 0.9375rem;
 }
 
+/* The exact missing setting — addressed to whoever deployed this, not to a
+   shopkeeper, so it is set apart rather than mixed into the explanation. */
+.panelDetail {
+  font-family: var(--font-numeric);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  word-break: break-word;
+}
+
 .primary {
   min-height: 44px;
   padding: 0 var(--space-5);

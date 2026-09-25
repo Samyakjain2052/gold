@@ -21,7 +21,14 @@ import {
   update_product,
   update_settings,
 } from "@/lib/api";
-import { acquire_token, active_account, get_msal, sign_in, sign_out } from "@/lib/auth";
+import {
+  acquire_token,
+  active_account,
+  AuthConfigError,
+  get_msal,
+  sign_in,
+  sign_out,
+} from "@/lib/auth";
 import { PricingRuleEditor, type SaveResult } from "@/components/dashboard/PricingRuleEditor";
 import { OnboardingForm, type CreateResult } from "@/components/dashboard/OnboardingForm";
 import {
@@ -51,6 +58,12 @@ type Phase =
   | { kind: "signed_out" }
   /** Verified, but this identity owns no shop yet. */
   | { kind: "needs_shop" }
+  /**
+   * Sign-in is not configured in this build. Distinct from `error` because no
+   * amount of retrying will help — the identity provider's details are baked
+   * into the bundle at build time, so this is a deployment fact, not a fault.
+   */
+  | { kind: "auth_unconfigured"; message: string }
   | {
       kind: "ready";
       session: SessionSummary;
@@ -118,6 +131,13 @@ export default function Dashboard() {
 
       set_phase({ kind: "ready", session, rules, settings, products });
     } catch (error) {
+      // Checked before anything else: without a configured provider there is
+      // no sign-in to offer, and "try again" would be a lie.
+      if (error instanceof AuthConfigError) {
+        set_phase({ kind: "auth_unconfigured", message: error.message });
+        return;
+      }
+
       if (error instanceof ApiError && error.is_unauthenticated) {
         // The token was rejected. Treat it as signed out rather than showing an
         // error the user cannot act on.
@@ -332,6 +352,22 @@ export default function Dashboard() {
     return (
       <main className={styles.centred} id="main">
         <OnboardingForm on_create={create} />
+      </main>
+    );
+  }
+
+  if (phase.kind === "auth_unconfigured") {
+    return (
+      <main className={styles.centred} id="main">
+        <div className={styles.panel} role="alert">
+          <h1 className={styles.panelTitle}>Sign-in isn&rsquo;t available here</h1>
+          <p className={styles.panelBody}>
+            This build has no identity provider configured, so there is no
+            shopkeeper account to sign in to. Customer rate pages work normally.
+          </p>
+          {/* The specific missing setting, for whoever deployed this. */}
+          <p className={styles.panelDetail}>{phase.message}</p>
+        </div>
       </main>
     );
   }
