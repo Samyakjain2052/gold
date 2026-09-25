@@ -1,6 +1,7 @@
 export type {
   AdjustmentKind,
   AuditEntry,
+  DisplayUnit,
   Envelope,
   Freshness,
   OnboardingRequest,
@@ -15,5 +16,10 @@ export type {
   RoundingMode,
   SessionSummary,
   StreamReadyEvent,
+  TenantContactSettings,
+  TenantProduct,
+  TenantSettings,
   UpdatePricingRule,
+  UpdateTenantProduct,
+  UpdateTenantSettings,
 } from "./public.js";

@@ -21,7 +21,11 @@ import type {
   PublicShop,
   RatesMeta,
   SessionSummary,
+  TenantProduct,
+  TenantSettings,
   UpdatePricingRule,
+  UpdateTenantProduct,
+  UpdateTenantSettings,
 } from "@bullion/contracts";
 
 /**
@@ -231,6 +235,55 @@ export async function fetch_audit_log(
   const { data } = await api_request<AuditEntry[]>(
     `/api/v1/audit-logs?limit=${String(limit)}`,
     { token },
+  );
+  return data;
+}
+
+export async function fetch_settings(token: string): Promise<TenantSettings> {
+  const { data } = await api_request<TenantSettings>("/api/v1/tenant", { token });
+  return data;
+}
+
+/**
+ * Save a partial settings change.
+ *
+ * Only the changed keys are sent. There is no `If-Match` here, unlike pricing:
+ * these are descriptive fields where a last-write-wins race costs a retyped
+ * tagline, whereas a lost pricing edit costs money. The asymmetry is deliberate
+ * rather than an omission.
+ */
+export async function update_settings(
+  token: string,
+  body: UpdateTenantSettings,
+): Promise<TenantSettings> {
+  const { data } = await api_request<TenantSettings>("/api/v1/tenant", {
+    method: "PATCH",
+    token,
+    body,
+  });
+  return data;
+}
+
+export async function fetch_products(token: string): Promise<TenantProduct[]> {
+  const { data } = await api_request<TenantProduct[]>("/api/v1/products", { token });
+  return data;
+}
+
+/**
+ * Change how one product is shown.
+ *
+ * A `display_unit` change makes the server recompute the published rate, so the
+ * caller must re-read rates afterwards rather than rescaling the number it
+ * already has — the browser does not compute rates here or anywhere.
+ */
+export async function update_product(
+  token: string,
+  product_id: string,
+  body: UpdateTenantProduct,
+): Promise<TenantProduct> {
+  const { data } = await api_request<TenantProduct>(
+    `/api/v1/products/${encodeURIComponent(product_id)}`,
+    { method: "PATCH", token, body },
   );
   return data;
 }

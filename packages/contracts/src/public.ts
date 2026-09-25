@@ -202,3 +202,94 @@ export interface OnboardingResult {
   /** Products enabled with a zero adjustment, ready for the shop to price. */
   readonly products: number;
 }
+
+// ---------------------------------------------------------------------------
+// Shop settings
+// ---------------------------------------------------------------------------
+
+/**
+ * What a shop says about itself.
+ *
+ * Distinct from `PublicShop`, which is the same shop as a *customer* sees it —
+ * after the `show_*` flags have been applied and internals dropped. The two are
+ * deliberately separate types: collapsing them is how a withheld phone number
+ * ends up on a public page.
+ */
+export interface TenantSettings {
+  readonly display_name: string;
+  readonly tagline: string | null;
+  readonly accent_color: string | null;
+  readonly has_logo: boolean;
+  readonly contact: TenantContactSettings;
+}
+
+export interface TenantContactSettings {
+  readonly phone: string | null;
+  readonly whatsapp: string | null;
+  readonly email: string | null;
+  readonly address_line1: string | null;
+  readonly address_line2: string | null;
+  readonly city: string | null;
+  readonly state: string | null;
+  readonly pincode: string | null;
+  /** The shop's disclosure choices, applied by the API, not by the browser. */
+  readonly show_phone: boolean;
+  readonly show_whatsapp: boolean;
+  readonly show_address: boolean;
+}
+
+/**
+ * A partial settings update.
+ *
+ * `null` clears a field; an absent key leaves it alone. The distinction is
+ * load-bearing — "remove my phone number" and "don't touch my phone number"
+ * are different intentions, and a form that sends only what changed relies on
+ * the second.
+ *
+ * Note what cannot be sent: tenant id, status, slug, anything about pricing.
+ * The API's schema is strict, so including one is a `422`.
+ */
+export interface UpdateTenantSettings {
+  readonly display_name?: string;
+  readonly tagline?: string | null;
+  readonly accent_color?: string | null;
+  readonly phone?: string | null;
+  readonly whatsapp?: string | null;
+  readonly email?: string | null;
+  readonly address_line1?: string | null;
+  readonly address_line2?: string | null;
+  readonly city?: string | null;
+  readonly state?: string | null;
+  readonly pincode?: string | null;
+  readonly show_phone?: boolean;
+  readonly show_whatsapp?: boolean;
+  readonly show_address?: boolean;
+}
+
+export type DisplayUnit = "per_gram" | "per_10_gram" | "per_kilogram";
+
+/** One row of the catalogue, with this shop's own configuration applied. */
+export interface TenantProduct {
+  readonly product_id: string;
+  readonly label: string;
+  readonly metal: string;
+  readonly purity: { readonly num: number; readonly den: number };
+  readonly is_enabled: boolean;
+  readonly display_unit: DisplayUnit;
+  /** Whether customers see the market rate and the shop's margin beside it. */
+  readonly show_base_rate: boolean;
+  readonly display_order: number;
+  /** Without a pricing rule the product cannot publish a rate. */
+  readonly has_pricing_rule: boolean;
+}
+
+export interface UpdateTenantProduct {
+  readonly is_enabled?: boolean;
+  /**
+   * Changing this invalidates the stored rate, which is an amount *in* the old
+   * unit. The API recomputes; the browser must not reinterpret the old number.
+   */
+  readonly display_unit?: DisplayUnit;
+  readonly show_base_rate?: boolean;
+  readonly display_order?: number;
+}

@@ -47,7 +47,9 @@ export type ActorType = "authenticated" | "platform_admin" | "system";
 export type AuditAction =
   | "pricing_rule.created"
   | "pricing_rule.updated"
-  | "pricing_rule.deactivated";
+  | "pricing_rule.deactivated"
+  | "tenant_settings.updated"
+  | "tenant_product.updated";
 
 export interface AuditActor {
   readonly user_id: string | null;

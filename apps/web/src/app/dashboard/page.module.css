@@ -39,10 +39,63 @@
   margin-top: var(--space-1);
 }
 
+/*
+ * Section navigation.
+ *
+ * Scrolls horizontally rather than wrapping: three tabs on two lines read as
+ * two groups, and a wrapped tab strip moves the panel down as the selection
+ * changes.
+ */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 550;
+  cursor: pointer;
+  /* Sits on the container's border rather than above it. */
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tabActive {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+  font-weight: 650;
+}
+
 .section {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+/* The panel is focusable for keyboard users; the outline belongs on focus only. */
+.section:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: var(--space-2);
+  border-radius: var(--radius-sm);
 }
 
 .sectionHeader {

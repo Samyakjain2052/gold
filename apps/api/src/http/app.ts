@@ -17,6 +17,7 @@ import { create_audit_router } from "./routes/audit_logs.js";
 import { create_public_router } from "./routes/public.js";
 import { create_me_router } from "./routes/me.js";
 import { create_onboarding_router } from "./routes/onboarding.js";
+import { create_products_router, create_tenant_router } from "./routes/tenant.js";
 import type { RateHub } from "../modules/realtime/rate_hub.js";
 import { create_authenticate, create_verify_identity } from "./middleware/authenticate.js";
 import { AuthorizationError } from "../modules/auth/authorization.js";
@@ -200,6 +201,16 @@ export function create_app(deps: AppDependencies): Express {
     // `authenticate` is applied at mount, so no handler below can be reached
     // without a derived context — it cannot be forgotten on a new route.
     app.use("/api/v1/me", authenticate, no_store, create_me_router({ db: deps.db }));
+
+    const tenant_deps = {
+      db: deps.db,
+      ...(deps.pipeline === undefined
+        ? {}
+        : { recompute_rule: deps.pipeline.recompute_rule.bind(deps.pipeline) }),
+    };
+
+    app.use("/api/v1/tenant", authenticate, no_store, create_tenant_router(tenant_deps));
+    app.use("/api/v1/products", authenticate, no_store, create_products_router(tenant_deps));
     app.use(
       "/api/v1/pricing-rules",
       authenticate,

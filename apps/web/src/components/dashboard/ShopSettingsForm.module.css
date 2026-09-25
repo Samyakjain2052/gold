@@ -1,0 +1,175 @@
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.legend {
+  padding: 0;
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.help {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  max-width: var(--measure);
+}
+
+.grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Keeps a number and its visibility switch together when the grid wraps. */
+.contactPair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 550;
+}
+
+.input {
+  font: inherit;
+  /* 16px minimum stops iOS zooming the page on focus. */
+  font-size: 1rem;
+  min-height: 44px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+.input:focus-visible {
+  border-color: var(--accent);
+}
+
+.colourRow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.swatch {
+  flex: 0 0 auto;
+  width: 48px;
+  min-height: 44px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  cursor: pointer;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* A comfortable touch target, per the mobile pass. */
+  min-height: 44px;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.fieldError {
+  font-size: 0.8125rem;
+  color: var(--status-expired);
+  font-weight: 550;
+}
+
+.status:empty {
+  display: none;
+}
+
+.error {
+  font-size: 0.875rem;
+  color: var(--status-expired);
+  background: var(--status-expired-wash);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+
+.saved {
+  font-size: 0.875rem;
+  color: var(--status-fresh);
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.unsaved {
+  font-size: 0.8125rem;
+  color: var(--status-stale);
+  font-weight: 600;
+}
+
+.primary {
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+  font-weight: 600;
+}
+
+.primary:disabled {
+  opacity: 0.55;
+}
+
+@media (max-width: 30rem) {
+  .card {
+    padding: var(--space-4);
+  }
+
+  /* The save button spans the width rather than hugging a corner thumb. */
+  .actions {
+    justify-content: space-between;
+  }
+
+  .primary {
+    flex: 1 1 auto;
+  }
+}
